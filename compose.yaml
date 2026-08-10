@@ -1,0 +1,162 @@
+# Export stable DB_PASSWORD and SECRET_KEY_BASE values before every Compose command.
+# After certificate replacement, run: docker compose exec proxy nginx -s reload
+name: polemic-crowd
+
+x-app-image: &app-image ghcr.io/arashbm/social_crowd_work:latest
+
+x-app-environment: &app-environment
+  DATABASE_URL: "ecto://social_crowd:${DB_PASSWORD:?Set DB_PASSWORD to a persistent URL-safe password}@postgres/social_crowd_prod"
+  PHX_HOST: polemic-crowd.cs.aalto.fi
+  PORT: "4000"
+  SECRET_KEY_BASE: "${SECRET_KEY_BASE:?Set SECRET_KEY_BASE to a persistent random secret}"
+
+x-logging: &default-logging
+  driver: local
+  options:
+    max-file: "5"
+    max-size: 10m
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: social_crowd_prod
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD to a persistent URL-safe password}"
+      POSTGRES_USER: social_crowd
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    logging: *default-logging
+
+  migrate:
+    image: *app-image
+    pull_policy: always
+    command: ["/app/bin/migrate"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    init: true
+    restart: "no"
+    networks:
+      - backend
+    logging: *default-logging
+
+  app:
+    image: *app-image
+    pull_policy: always
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    expose:
+      - "4000"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks:
+      - backend
+    logging: *default-logging
+
+  proxy:
+    image: nginx:stable-alpine
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    configs:
+      - source: nginx-config
+        target: /etc/nginx/nginx.conf
+    volumes:
+      - type: bind
+        source: /etc/ssl/private
+        target: /etc/ssl/private
+        read_only: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks:
+      - backend
+    logging: *default-logging
+
+configs:
+  nginx-config:
+    content: |
+      worker_processes auto;
+
+      events {
+        worker_connections 1024;
+      }
+
+      http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        sendfile on;
+        server_tokens off;
+
+        resolver 127.0.0.11 ipv6=off valid=10s;
+
+        map $$http_upgrade $$connection_upgrade {
+          default upgrade;
+          '' close;
+        }
+
+        server {
+          listen 80;
+          listen [::]:80;
+          server_name polemic-crowd.cs.aalto.fi;
+
+          return 301 https://$$host$$request_uri;
+        }
+
+        server {
+          listen 443 ssl;
+          listen [::]:443 ssl;
+          http2 on;
+          server_name polemic-crowd.cs.aalto.fi;
+
+          ssl_certificate /etc/ssl/private/fullchain.pem;
+          ssl_certificate_key /etc/ssl/private/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_session_cache shared:SSL:10m;
+          ssl_session_timeout 1d;
+          ssl_session_tickets off;
+
+          client_max_body_size 25m;
+
+          location / {
+            set $$app_upstream app:4000;
+            proxy_pass http://$$app_upstream;
+            proxy_http_version 1.1;
+            proxy_buffering off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+
+            proxy_set_header Host $$host;
+            proxy_set_header X-Real-IP $$remote_addr;
+            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Host $$host;
+            proxy_set_header X-Forwarded-Port 443;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Upgrade $$http_upgrade;
+            proxy_set_header Connection $$connection_upgrade;
+          }
+        }
+      }
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres-data:
