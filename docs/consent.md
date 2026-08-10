@@ -4,4 +4,4 @@ Consent documents are immutable, code-defined modules implementing `SocialCrowdW
 
 Each condition references the consent key participants must accept. A condition cannot be activated until it has a known consent key, Prolific study ID, and completion code. Acceptance and run allocation occur in one transaction; declining consent creates no participation or run assignment.
 
-There are currently no production consent definitions. `SocialCrowdWork.TestConsent` is compiled only for tests and cannot be selected in a deployed environment.
+`psychosocial-signals-consent.v1` is the production consent for the psychosocial signals study. It displays the versioned consent statements and the privacy notice stored at `priv/static/documents/research_study_privacy_notice.pdf`. `SocialCrowdWork.TestConsent` remains compiled only for tests and cannot be selected in a deployed environment.

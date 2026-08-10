@@ -136,6 +136,11 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(definitions, "[id='prompt-test-comparison.v1']")
     assert has_element?(definitions, "[id='consent-test-consent.v1']")
 
+    assert has_element?(
+             definitions,
+             "[id='consent-psychosocial-signals-consent.v1'] #privacy-notice-document[src='/documents/research_study_privacy_notice.pdf']"
+           )
+
     conn = get(conn, ~p"/admin/exports/download?#{%{condition: condition.key}}")
     body = response(conn, 200)
     assert get_resp_header(conn, "content-type") |> hd() =~ "application/x-ndjson"

@@ -32,6 +32,25 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert Repo.aggregate(Participation, :count) == 0
   end
 
+  test "renders the production privacy notice and consent statements", %{conn: conn} do
+    condition =
+      condition_fixture(:comparison, %{consent_key: "psychosocial-signals-consent.v1"})
+
+    run_fixture(condition)
+    attrs = participation_attrs(condition)
+
+    {:ok, view, _html} = enter_study(conn, condition, attrs)
+
+    assert has_element?(
+             view,
+             "#privacy-notice-document[src='/documents/research_study_privacy_notice.pdf']"
+           )
+
+    assert has_element?(view, "#consent-statements-heading")
+    assert has_element?(view, "#psychosocial-signals-consent-v1", "I give my consent")
+    assert Repo.aggregate(Participation, :count) == 0
+  end
+
   test "accepts consent and displays comparison actions in fixed imported order", %{conn: conn} do
     condition = condition_fixture()
 

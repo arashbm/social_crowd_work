@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.Consents do
   by the deployed application.
   """
 
-  @consent_modules []
+  @consent_modules [SocialCrowdWork.Consents.PsychosocialSignalsConsentV1]
 
   def fetch(key) when is_binary(key) do
     case Enum.find(consent_modules(), fn module -> module.key() == key end) do
