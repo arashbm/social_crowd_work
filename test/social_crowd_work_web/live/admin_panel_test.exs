@@ -138,6 +138,38 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
     assert has_element?(
              definitions,
+             "[id='prompt-worry.v1'] #worry-prompt-v1 h1",
+             "Which post shows more worry about something bad happening?"
+           )
+
+    assert has_element?(definitions, "#worry-prompt-v1 u", "worry")
+
+    assert has_element?(
+             definitions,
+             "[id='prompt-restlessness.v1'] #restlessness-prompt-v1 h1",
+             "Which post sounds more emotionally tense, agitated, or unable to settle down?"
+           )
+
+    assert has_element?(
+             definitions,
+             "#restlessness-prompt-v1 u",
+             "emotionally tense, agitated, or unable to settle down"
+           )
+
+    assert has_element?(
+             definitions,
+             "[id='prompt-cognitive-disruption.v1'] #cognitive-disruption-prompt-v1 h1",
+             "Which post shows more difficulty thinking clearly because of distress?"
+           )
+
+    assert has_element?(
+             definitions,
+             "#cognitive-disruption-prompt-v1 u",
+             "difficulty thinking clearly because of distress"
+           )
+
+    assert has_element?(
+             definitions,
              "[id='consent-psychosocial-signals-consent.v1'] #privacy-notice-document[src='/documents/research_study_privacy_notice.pdf']"
            )
 

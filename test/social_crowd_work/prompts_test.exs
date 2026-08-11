@@ -3,6 +3,21 @@ defmodule SocialCrowdWork.PromptsTest do
 
   alias SocialCrowdWork.Prompts
 
+  @production_prompts [
+    {"worry.v1", SocialCrowdWork.Prompts.WorryV1},
+    {"restlessness.v1", SocialCrowdWork.Prompts.RestlessnessV1},
+    {"cognitive-disruption.v1", SocialCrowdWork.Prompts.CognitiveDisruptionV1}
+  ]
+
+  test "fetches production comparison prompts by their immutable keys" do
+    Enum.each(@production_prompts, fn {key, module} ->
+      assert {:ok, ^module} = Prompts.fetch(key)
+      assert module.task_type() == :comparison
+      assert module.choices() == [:post_a, :post_b, :equal, :skip]
+      assert %Phoenix.LiveView.Rendered{} = module.render(%{})
+    end)
+  end
+
   test "fetches configured prompt modules by their external string keys" do
     assert {:ok, SocialCrowdWork.TestComparisonPrompt} =
              Prompts.fetch("test-comparison.v1")

@@ -7,7 +7,11 @@ defmodule SocialCrowdWork.Prompts do
   definitions that cannot accidentally become production research prompts.
   """
 
-  @prompt_modules []
+  @prompt_modules [
+    SocialCrowdWork.Prompts.WorryV1,
+    SocialCrowdWork.Prompts.RestlessnessV1,
+    SocialCrowdWork.Prompts.CognitiveDisruptionV1
+  ]
 
   def fetch(key) when is_binary(key) do
     case Enum.find(prompt_modules(), fn module -> module.key() == key end) do
