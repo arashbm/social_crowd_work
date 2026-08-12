@@ -37,7 +37,7 @@ if Mix.env() == :dev do
         "SESSION_ID" => "dev-session-#{Ecto.UUID.generate()}"
       })
 
-    "#{base_url}/participate/#{condition.entry_token}?#{query}"
+    "#{base_url}/enter/#{condition.entry_token}?#{query}"
   end
 
   [comparison_condition, binary_condition] = conditions

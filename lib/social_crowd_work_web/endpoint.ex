@@ -8,6 +8,8 @@ defmodule SocialCrowdWorkWeb.Endpoint do
     key: "_social_crowd_work_key",
     signing_salt: "7zVu35Wg",
     encryption_salt: "m8Qv1Vj5Xk3zB7Np",
+    http_only: true,
+    secure: Application.compile_env(:social_crowd_work, :secure_cookies, false),
     same_site: "Lax"
   ]
 

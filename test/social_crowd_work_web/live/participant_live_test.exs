@@ -8,7 +8,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
   alias SocialCrowdWork.Repo
 
   test "requires a verified entry session", %{conn: conn} do
-    assert {:ok, view, _html} = live(conn, ~p"/participate")
+    context_token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    assert {:ok, view, _html} = live(conn, ~p"/participate/#{context_token}")
     assert has_element?(view, "#participation-error")
     refute has_element?(view, "#consent-panel")
   end
@@ -49,6 +50,41 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(view, "#consent-statements-heading")
     assert has_element?(view, "#psychosocial-signals-consent-v1", "I give my consent")
     assert Repo.aggregate(Participation, :count) == 0
+  end
+
+  test "keeps two studies independent in one browser after both have launched", %{conn: conn} do
+    first_condition = condition_fixture()
+    second_condition = condition_fixture()
+    run_fixture(first_condition)
+    run_fixture(second_condition)
+
+    first_attrs = participation_attrs(first_condition)
+
+    second_attrs =
+      participation_attrs(second_condition, %{
+        prolific_participant_id: first_attrs.prolific_participant_id
+      })
+
+    {first_conn, first_path} = launch_study(conn, first_condition, first_attrs)
+
+    {second_conn, second_path} =
+      launch_study(recycle(first_conn), second_condition, second_attrs)
+
+    {:ok, first_view, _html} = live(recycle(second_conn), first_path)
+    {:ok, second_view, _html} = live(recycle(second_conn), second_path)
+
+    assert has_element?(first_view, "#consent-panel")
+    assert has_element?(second_view, "#consent-panel")
+
+    first_view |> element("#accept-consent") |> render_click()
+    second_view |> element("#accept-consent") |> render_click()
+
+    first = Repo.get_by!(Participation, prolific_session_id: first_attrs.prolific_session_id)
+    second = Repo.get_by!(Participation, prolific_session_id: second_attrs.prolific_session_id)
+
+    assert first.id != second.id
+    assert first.run_id != second.run_id
+    assert first.prolific_participant_id == second.prolific_participant_id
   end
 
   test "accepts consent and displays comparison actions in fixed imported order", %{conn: conn} do
@@ -142,10 +178,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
 
     view |> element("#answer-yes") |> render_click()
 
-    completion_url =
-      "https://app.prolific.com/submissions/complete?cc=#{condition.prolific_completion_code}"
-
-    assert_redirect(view, completion_url)
+    assert {completion_path, %{}} = assert_redirect(view)
+    assert completion_path =~ ~r|^/participate/[A-Za-z0-9_-]{43}/complete$|
     participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
     assert participation.status == :completed
   end
@@ -195,13 +229,19 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
   end
 
   defp enter_study(conn, condition, attrs) do
+    {conn, participant_path} = launch_study(conn, condition, attrs)
+    live(recycle(conn), participant_path)
+  end
+
+  defp launch_study(conn, condition, attrs) do
     conn =
       get(
         conn,
-        ~p"/participate/#{condition.entry_token}?#{%{"PROLIFIC_PID" => attrs.prolific_participant_id, "STUDY_ID" => attrs.prolific_study_id, "SESSION_ID" => attrs.prolific_session_id}}"
+        ~p"/enter/#{condition.entry_token}?#{%{"PROLIFIC_PID" => attrs.prolific_participant_id, "STUDY_ID" => attrs.prolific_study_id, "SESSION_ID" => attrs.prolific_session_id}}"
       )
 
-    assert redirected_to(conn) == ~p"/participate"
-    live(recycle(conn), ~p"/participate")
+    participant_path = redirected_to(conn)
+    assert participant_path =~ ~r|^/participate/[A-Za-z0-9_-]{43}$|
+    {conn, participant_path}
   end
 end

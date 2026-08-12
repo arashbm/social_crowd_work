@@ -236,7 +236,7 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
   end
 
   defp entry_url(condition) do
-    url(~p"/participate/#{condition.entry_token}") <>
+    url(~p"/enter/#{condition.entry_token}") <>
       "?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}"
   end
 end

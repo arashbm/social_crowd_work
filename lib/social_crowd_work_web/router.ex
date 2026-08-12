@@ -17,13 +17,25 @@ defmodule SocialCrowdWorkWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :participant_privacy do
+    plug SocialCrowdWorkWeb.Plugs.ParticipantPrivacy
+  end
+
   scope "/", SocialCrowdWorkWeb do
     pipe_through :browser
 
     get "/", PageController, :home
+  end
+
+  scope "/", SocialCrowdWorkWeb do
+    pipe_through [:browser, :participant_privacy]
+
+    get "/enter/:entry_token", ParticipationController, :start
+    get "/participate/error", ParticipationController, :error
     get "/participate/declined", ParticipationController, :declined
-    get "/participate/:entry_token", ParticipationController, :start
-    live "/participate", ParticipantLive
+    get "/participate/:context_token/decline", ParticipationController, :decline
+    get "/participate/:context_token/complete", ParticipationController, :complete
+    live "/participate/:context_token", ParticipantLive
   end
 
   # Other scopes may use custom stacks.

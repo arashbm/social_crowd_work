@@ -52,7 +52,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     view |> element("#set-status-active") |> render_click()
     assert Repo.get!(Condition, condition.id).status == :active
     assert Repo.aggregate(AuditEvent, :count) == 2
-    assert has_element?(view, "#condition-entry-url")
+    assert has_element?(view, "#condition-entry-url", "/enter/#{condition.entry_token}")
     assert has_element?(view, "#condition-runs")
   end
 

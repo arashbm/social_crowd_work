@@ -1,11 +1,11 @@
 defmodule SocialCrowdWorkWeb.ParticipantLive do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.{Consents, DataCollection, Experiments, Prolific, Prompts}
+  alias SocialCrowdWork.{Consents, DataCollection, Experiments, Prompts}
   alias SocialCrowdWork.DataCollection.Participation
   alias SocialCrowdWork.Experiments.Condition
+  alias SocialCrowdWorkWeb.ParticipantContexts
 
-  @session_key "participant_context"
   @choices %{
     "post_a" => :post_a,
     "post_b" => :post_b,
@@ -16,12 +16,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   }
 
   @impl true
-  def mount(_params, session, socket) do
+  def mount(%{"context_token" => context_token}, session, socket) do
     socket =
       socket
       |> assign(:current_scope, %{})
       |> assign(:state, :loading)
       |> assign(:condition, nil)
+      |> assign(:context_token, context_token)
       |> assign(:participant_context, nil)
       |> assign(:participation, nil)
       |> assign(:consent, nil)
@@ -29,8 +30,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       |> assign(:prompt, nil)
       |> assign(:response, nil)
       |> assign(:total_tasks, 0)
-      |> assign(:completion_url, nil)
-      |> load_session(session)
+      |> load_session(session, context_token)
 
     {:ok, socket}
   end
@@ -113,7 +113,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       >
         <%= case @state do %>
           <% :consent -> %>
-            <.consent_panel consent={@consent} />
+            <.consent_panel consent={@consent} context_token={@context_token} />
           <% :task -> %>
             <.task_panel
               task={@task}
@@ -130,7 +130,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             >
               <a
                 id="complete-on-prolific"
-                href={@completion_url}
+                href={~p"/participate/#{@context_token}/complete"}
                 rel="noreferrer"
                 data-shortcut="Enter,space"
                 class="inline-flex items-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
@@ -213,6 +213,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :consent, :any, required: true
+  attr :context_token, :string, required: true
 
   defp consent_panel(assigns) do
     ~H"""
@@ -226,7 +227,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       <div class="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 px-7 py-6 transition-colors dark:border-slate-700 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between sm:px-11">
         <.link
           id="decline-consent"
-          href={~p"/participate/declined"}
+          href={~p"/participate/#{@context_token}/decline"}
           class="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           I do not consent
@@ -514,15 +515,15 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     """
   end
 
-  defp load_session(socket, %{@session_key => context}) when is_map(context) do
-    with condition_id when is_integer(condition_id) <- Map.get(context, "condition_id"),
+  defp load_session(socket, session, context_token) do
+    with {:ok, context} <- ParticipantContexts.fetch(session, context_token),
+         condition_id when is_integer(condition_id) <- Map.get(context, "condition_id"),
          %Condition{} = condition <- Experiments.get_condition(condition_id),
          participant_context <- participant_attrs(context) do
       socket =
         socket
         |> assign(:condition, condition)
         |> assign(:participant_context, participant_context)
-        |> assign(:completion_url, completion_url(condition))
 
       case DataCollection.resume_participation(condition, participant_context) do
         {:ok, participation} -> load_participation(socket, participation)
@@ -533,8 +534,6 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       _other -> assign_error(socket, :invalid_session)
     end
   end
-
-  defp load_session(socket, _session), do: assign_error(socket, :missing_session)
 
   defp load_consent(socket, %Condition{status: status}) when status != :active,
     do: assign(socket, :state, :unavailable)
@@ -595,7 +594,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       case DataCollection.complete_participation(socket.assigns.participation) do
         {:ok, completed} ->
           socket = socket |> assign(:participation, completed) |> load_completed()
-          {:noreply, redirect(socket, external: socket.assigns.completion_url)}
+
+          {:noreply,
+           redirect(socket, to: ~p"/participate/#{socket.assigns.context_token}/complete")}
 
         {:error, reason} ->
           {:noreply, assign_error(socket, reason)}
@@ -613,10 +614,6 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       prolific_study_id: Map.get(context, "prolific_study_id"),
       prolific_session_id: Map.get(context, "prolific_session_id")
     }
-  end
-
-  defp completion_url(condition) do
-    Prolific.completion_url(condition.prolific_completion_code)
   end
 
   defp choice_from_string(choice) do
