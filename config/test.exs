@@ -14,6 +14,7 @@ config :social_crowd_work, SocialCrowdWorkWeb.Endpoint,
 config :social_crowd_work, SocialCrowdWork.Mailer, adapter: Swoosh.Adapters.Test
 
 config :social_crowd_work,
+  max_manifest_upload_size: 1_000,
   prompt_modules: [
     SocialCrowdWork.TestComparisonPrompt,
     SocialCrowdWork.TestBinaryQuestionPrompt

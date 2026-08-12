@@ -23,6 +23,7 @@ config :social_crowd_work, :scopes,
 config :social_crowd_work,
   ecto_repos: [SocialCrowdWork.Repo],
   generators: [timestamp_type: :utc_datetime],
+  max_manifest_upload_size: 100_000_000,
   prolific_completion_url: "https://app.prolific.com/submissions/complete"
 
 # Configure the endpoint

@@ -103,6 +103,36 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert Repo.get_by!(AuditEvent, action: "manifest_imported")
   end
 
+  test "shows oversized manifest errors and prevents submission", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/admin/imports")
+
+    upload =
+      file_input(view, "#manifest-upload-form", :manifest, [
+        %{
+          name: "too-large.json",
+          content: String.duplicate("x", 1_001),
+          type: "application/json"
+        }
+      ])
+
+    assert {:error, [[_ref, :too_large]]} = render_upload(upload, "too-large.json", 1)
+    assert has_element?(view, "#manifest-upload-errors", "The manifest exceeds 100 MB.")
+    assert has_element?(view, "#import-manifest[disabled]")
+  end
+
+  test "shows unsupported manifest type errors and prevents submission", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/admin/imports")
+
+    upload =
+      file_input(view, "#manifest-upload-form", :manifest, [
+        %{name: "manifest.txt", content: "{}", type: "text/plain"}
+      ])
+
+    assert {:error, [[_ref, :not_accepted]]} = render_upload(upload, "manifest.txt", 1)
+    assert has_element?(view, "#manifest-upload-errors", "Only JSON files are accepted.")
+    assert has_element?(view, "#import-manifest[disabled]")
+  end
+
   test "participation lists mask IDs while details reveal them", %{conn: conn} do
     condition = condition_fixture()
     run_fixture(condition)

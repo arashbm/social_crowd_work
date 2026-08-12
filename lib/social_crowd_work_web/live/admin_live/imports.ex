@@ -3,6 +3,11 @@ defmodule SocialCrowdWorkWeb.AdminLive.Imports do
 
   alias SocialCrowdWork.{AdminAudit, AdminPanel}
 
+  @max_manifest_size Application.compile_env!(
+                       :social_crowd_work,
+                       :max_manifest_upload_size
+                     )
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -16,7 +21,7 @@ defmodule SocialCrowdWorkWeb.AdminLive.Imports do
      |> allow_upload(:manifest,
        accept: ~w(.json application/json),
        max_entries: 1,
-       max_file_size: 20_000_000
+       max_file_size: @max_manifest_size
      )
      |> stream(:imports, AdminPanel.list_import_summaries(scope),
        dom_id: fn %{batch: batch} -> "import-#{batch.id}" end
@@ -84,21 +89,35 @@ defmodule SocialCrowdWorkWeb.AdminLive.Imports do
             <p class="mt-3 font-semibold text-slate-900 dark:text-white">
               Select a versioned JSON manifest
             </p>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Maximum file size: 20 MB</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Maximum file size: 100 MB</p>
             <.live_file_input
               upload={@uploads.manifest}
               class="mx-auto mt-5 block max-w-md text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-100 file:px-4 file:py-2 file:font-semibold file:text-indigo-800 hover:file:bg-indigo-200 dark:text-slate-300 dark:file:bg-indigo-500/15 dark:file:text-indigo-300"
             />
           </div>
-          <p :for={error <- upload_errors(@uploads.manifest)} class="mt-2 text-sm text-rose-600">
-            {upload_error_to_string(error)}
-          </p>
+          <div id="manifest-upload-errors" class="mt-2 space-y-1" aria-live="polite">
+            <p
+              :for={error <- upload_errors(@uploads.manifest)}
+              class="text-sm font-medium text-rose-600 dark:text-rose-400"
+            >
+              {upload_error_to_string(error)}
+            </p>
+            <div :for={entry <- @uploads.manifest.entries}>
+              <p
+                :for={error <- upload_errors(@uploads.manifest, entry)}
+                id={"manifest-upload-error-#{entry.ref}"}
+                class="text-sm font-medium text-rose-600 dark:text-rose-400"
+              >
+                {upload_error_to_string(error)}
+              </p>
+            </div>
+          </div>
           <div class="mt-5 flex justify-end">
             <button
               id="import-manifest"
               type="submit"
               class="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
-              disabled={@uploads.manifest.entries == []}
+              disabled={not upload_ready?(@uploads.manifest)}
             >
               Validate and import
             </button>
@@ -164,7 +183,17 @@ defmodule SocialCrowdWorkWeb.AdminLive.Imports do
     """
   end
 
-  defp upload_error_to_string(:too_large), do: "The manifest exceeds 20 MB."
+  defp upload_ready?(upload) do
+    upload.entries != [] and upload_errors(upload) == [] and
+      Enum.all?(upload.entries, &(upload_errors(upload, &1) == []))
+  end
+
+  defp upload_error_to_string(:too_large), do: "The manifest exceeds 100 MB."
   defp upload_error_to_string(:not_accepted), do: "Only JSON files are accepted."
   defp upload_error_to_string(:too_many_files), do: "Upload one manifest at a time."
+
+  defp upload_error_to_string(:external_client_failure),
+    do: "The upload was interrupted. Try again."
+
+  defp upload_error_to_string(_error), do: "The manifest could not be uploaded."
 end

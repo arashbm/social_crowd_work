@@ -35,3 +35,6 @@ social_crowd_work-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Python utility artifacts.
+__pycache__/
+*.py[cod]
