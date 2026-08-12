@@ -182,6 +182,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           export default {
             mounted() {
               this.pending = false
+              this.handleEvent("scroll_to_top", () => {
+                window.scrollTo({top: 0, behavior: "smooth"})
+              })
               this.onKeydown = event => {
                 if (this.pending || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
                 if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) || event.target.isContentEditable) return
@@ -589,7 +592,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp advance(socket) do
     if socket.assigns.task.position < socket.assigns.total_tasks do
-      {:noreply, load_task(socket, socket.assigns.task.position + 1)}
+      socket =
+        socket
+        |> load_task(socket.assigns.task.position + 1)
+        |> push_event("scroll_to_top", %{})
+
+      {:noreply, socket}
     else
       case DataCollection.complete_participation(socket.assigns.participation) do
         {:ok, completed} ->

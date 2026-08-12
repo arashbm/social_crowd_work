@@ -146,6 +146,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     view |> element("#accept-consent") |> render_click()
     view |> element("#answer-post-a") |> render_click()
 
+    assert_push_event(view, "scroll_to_top", %{})
     assert has_element?(view, "#task-progress", "2 / 2")
     assert has_element?(view, "#previous-task:not([disabled])")
 
