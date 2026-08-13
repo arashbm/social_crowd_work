@@ -2,7 +2,7 @@ defmodule SocialCrowdWork.DataCollectionTest do
   use SocialCrowdWork.DataCase, async: false
 
   alias SocialCrowdWork.DataCollection
-  alias SocialCrowdWork.DataCollection.{Participation, Response}
+  alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
   alias SocialCrowdWork.Experiments.Condition
 
   import SocialCrowdWork.Fixtures
@@ -214,55 +214,350 @@ defmodule SocialCrowdWork.DataCollectionTest do
     end
   end
 
+  describe "participant launch lifecycle" do
+    test "creates unique DB-backed launches without creating participation and resolves them" do
+      condition = condition_fixture()
+      attrs = participation_attrs(condition)
+
+      tokens = for _ <- 1..3, do: create_launch(condition, attrs)
+
+      token_hashes =
+        Enum.map(tokens, fn token -> elem(ParticipantLaunch.hash_token(token), 1) end)
+
+      assert length(Enum.uniq(tokens)) == 3
+      assert Repo.aggregate(ParticipantLaunch, :count) == 3
+      assert Repo.aggregate(Participation, :count) == 0
+
+      for {token, token_hash} <- Enum.zip(tokens, token_hashes) do
+        assert {:ok, result} = DataCollection.resolve_participant_launch(token)
+        assert result.condition.id == condition.id
+        assert result.launch.token_hash == token_hash
+        assert result.participation == nil
+      end
+
+      assert Enum.sort(Enum.map(Repo.all(ParticipantLaunch), & &1.token_hash)) ==
+               Enum.sort(token_hashes)
+
+      assert {:error, :invalid_launch} = DataCollection.resolve_participant_launch("malformed")
+    end
+
+    test "preattaches only an exact existing participation and uses post-consent TTL" do
+      condition = condition_fixture()
+      run_fixture(condition)
+      attrs = participation_attrs(condition)
+
+      assert {:ok, participation} =
+               DataCollection.consent_and_assign_run(condition, attrs, condition.consent_key)
+
+      token = create_launch(condition, attrs)
+
+      assert {:ok, %{launch: launch, participation: attached}} =
+               DataCollection.resolve_participant_launch(token)
+
+      assert attached.id == participation.id
+
+      assert DateTime.diff(launch.expires_at, launch.inserted_at) ==
+               Application.fetch_env!(
+                 :social_crowd_work,
+                 :participant_launch_post_consent_ttl_seconds
+               )
+
+      other_condition = condition_fixture()
+
+      assert {:error, :session_condition_mismatch} =
+               DataCollection.create_participant_launch(other_condition, attrs)
+
+      assert {:error, :prolific_identity_mismatch} =
+               DataCollection.create_participant_launch(condition, %{
+                 attrs
+                 | prolific_participant_id: "different"
+               })
+    end
+
+    test "consent atomically creates and attaches participation and extends expiry" do
+      condition = condition_fixture()
+      run_fixture(condition)
+      attrs = participation_attrs(condition)
+      token = create_launch(condition, attrs)
+
+      assert {:ok, participation} =
+               DataCollection.consent_and_assign_run(token, condition.consent_key)
+
+      assert {:ok, %{launch: launch, participation: attached}} =
+               DataCollection.resolve_participant_launch(token)
+
+      assert attached.id == participation.id
+      assert launch.participation_id == participation.id
+
+      assert DateTime.diff(launch.expires_at, DateTime.utc_now()) >
+               Application.fetch_env!(
+                 :social_crowd_work,
+                 :participant_launch_pre_consent_ttl_seconds
+               )
+    end
+
+    test "duplicate launch tokens for one session converge on one participation" do
+      condition = condition_fixture()
+      run_fixture(condition)
+      attrs = participation_attrs(condition)
+      tokens = for _ <- 1..3, do: create_launch(condition, attrs)
+      supervisor = start_supervised!(Task.Supervisor)
+      parent = self()
+
+      tasks =
+        Enum.map(tokens, fn token ->
+          Task.Supervisor.async_nolink(supervisor, fn ->
+            send(parent, {:ready, self()})
+
+            receive do
+              :consent -> DataCollection.consent_and_assign_run(token, condition.consent_key)
+            end
+          end)
+        end)
+
+      pids =
+        for _ <- tasks do
+          assert_receive {:ready, pid}
+          pid
+        end
+
+      Enum.each(pids, &send(&1, :consent))
+
+      ids =
+        Enum.map(tasks, fn task ->
+          assert {:ok, participation} = Task.await(task)
+          participation.id
+        end)
+
+      assert length(Enum.uniq(ids)) == 1
+      assert Repo.aggregate(Participation, :count) == 1
+
+      assert Repo.aggregate(
+               from(launch in ParticipantLaunch,
+                 where: not is_nil(launch.participation_id)
+               ),
+               :count
+             ) == 3
+    end
+
+    test "expired launches are invalid and are lazily deleted on creation" do
+      condition = condition_fixture()
+      attrs = participation_attrs(condition)
+      expired_token = create_launch(condition, attrs)
+      {:ok, expired_hash} = ParticipantLaunch.hash_token(expired_token)
+      past = DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.truncate(:second)
+
+      ParticipantLaunch
+      |> where([launch], launch.token_hash == ^expired_hash)
+      |> Repo.update_all(set: [inserted_at: DateTime.add(past, -1, :second), expires_at: past])
+
+      assert {:error, :invalid_launch} = DataCollection.resolve_participant_launch(expired_token)
+
+      assert {:error, :invalid_launch} =
+               DataCollection.consent_and_assign_run(expired_token, condition.consent_key)
+
+      _fresh_token = create_launch(condition, participation_attrs(condition))
+      refute Repo.get_by(ParticipantLaunch, token_hash: expired_hash)
+    end
+
+    test "declines only valid unattached launches" do
+      condition = condition_fixture()
+      attrs = participation_attrs(condition)
+      token = create_launch(condition, attrs)
+
+      assert {:ok, %ParticipantLaunch{}} = DataCollection.decline_participant_launch(token)
+      assert {:error, :invalid_launch} = DataCollection.decline_participant_launch(token)
+
+      run_fixture(condition)
+      attached_token = create_launch(condition, participation_attrs(condition))
+
+      assert {:ok, _participation} =
+               DataCollection.consent_and_assign_run(attached_token, condition.consent_key)
+
+      assert {:error, :already_consented} =
+               DataCollection.decline_participant_launch(attached_token)
+    end
+
+    test "completion requires the exact completed participation and cleans every launch" do
+      condition = condition_fixture()
+      run = run_fixture(condition)
+      attrs = participation_attrs(condition)
+      tokens = for _ <- 1..3, do: create_launch(condition, attrs)
+      [first_token | _] = tokens
+
+      assert {:ok, participation} =
+               DataCollection.consent_and_assign_run(first_token, condition.consent_key)
+
+      for token <- tl(tokens) do
+        assert {:ok, resumed} =
+                 DataCollection.consent_and_assign_run(token, condition.consent_key)
+
+        assert resumed.id == participation.id
+      end
+
+      assert {:error, :participation_not_completed} =
+               DataCollection.complete_participant_launch(first_token)
+
+      [task] = run.tasks
+
+      assert {:ok, _response} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+
+      assert {:ok, _completed} = DataCollection.complete_participation(participation)
+
+      assert {:ok, result} = DataCollection.complete_participant_launch(first_token)
+      assert result.condition.id == condition.id
+      assert result.completion_code == condition.prolific_completion_code
+      assert Repo.aggregate(ParticipantLaunch, :count) == 0
+
+      for token <- tokens do
+        assert {:error, :invalid_launch} = DataCollection.resolve_participant_launch(token)
+      end
+    end
+  end
+
   describe "responses and progress" do
-    test "records comparison answers and explicit skips in order" do
+    test "response changesets require a nonblank question key" do
+      attrs = %{
+        participation_id: 1,
+        task_id: 1,
+        run_id: 1,
+        question_key: " ",
+        choice: :post_a,
+        answered_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      }
+
+      changeset = Response.changeset(%Response{}, attrs, :comparison)
+
+      assert "can't be blank" in errors_on(changeset).question_key
+    end
+
+    test "task page returns ordered questionnaire questions, responses, and progress" do
+      condition = condition_fixture()
+
+      run =
+        run_fixture(condition, %{
+          tasks: [
+            comparison_task(1)
+            |> Map.put(:questionnaire_key, "psychosocial-comparisons.v1")
+          ]
+        })
+
+      assert {:ok, participation} = assign(condition)
+      [task] = run.tasks
+
+      assert {:ok, page} = DataCollection.task_page(participation, 1)
+      assert page.task.id == task.id
+      assert page.questionnaire.key() == "psychosocial-comparisons.v1"
+      assert page.total_tasks == 1
+      refute page.complete?
+      assert page.active_question_key == "worry.v1"
+
+      assert Enum.map(page.questions, &{&1.number, &1.key, &1.module, &1.response}) == [
+               {1, "worry.v1", SocialCrowdWork.Prompts.WorryV1, nil},
+               {2, "restlessness.v1", SocialCrowdWork.Prompts.RestlessnessV1, nil},
+               {3, "cognitive-disruption.v1", SocialCrowdWork.Prompts.CognitiveDisruptionV1, nil}
+             ]
+
+      assert {:ok, response} =
+               DataCollection.record_response(participation, task.id, "worry.v1", :post_a)
+
+      assert {:ok, updated_page} = DataCollection.task_page(participation, 1)
+      assert updated_page.active_question_key == "restlessness.v1"
+      refute updated_page.complete?
+      assert Enum.at(updated_page.questions, 0).response.id == response.id
+    end
+
+    test "records all questionnaire answers including explicit skips in task order" do
       condition = condition_fixture()
       run = run_fixture(condition, %{tasks: [comparison_task(1), comparison_task(2)]})
       assert {:ok, participation} = assign(condition)
-
-      assert DataCollection.next_unanswered_task(participation).position == 1
       first_task = Enum.find(run.tasks, &(&1.position == 1))
       second_task = Enum.find(run.tasks, &(&1.position == 2))
 
+      assert DataCollection.next_incomplete_task(participation).position == 1
+
       assert {:ok, first_response} =
-               DataCollection.record_response(participation, first_task.id, :post_a)
+               DataCollection.record_response(
+                 participation,
+                 first_task.id,
+                 "test-comparison.v1",
+                 :post_a
+               )
 
       assert first_response.choice == :post_a
-      assert DataCollection.next_unanswered_task(participation).position == 2
+      assert DataCollection.next_incomplete_task(participation).position == 2
 
       assert {:ok, skipped_response} =
-               DataCollection.record_response(participation, second_task.id, :skip)
+               DataCollection.record_response(
+                 participation,
+                 second_task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
 
       assert skipped_response.choice == :skip
-      assert DataCollection.next_unanswered_task(participation) == nil
+      assert DataCollection.next_incomplete_task(participation) == nil
       assert Repo.get!(Participation, participation.id).status == :in_progress
     end
 
-    test "validates choices according to the condition type" do
+    test "transactionally validates questionnaire, question, and choice identities" do
       comparison_condition = condition_fixture(:comparison)
       comparison_run = run_fixture(comparison_condition)
       assert {:ok, comparison_participation} = assign(comparison_condition)
       [comparison_task] = comparison_run.tasks
 
-      assert {:error, comparison_changeset} =
-               DataCollection.record_response(comparison_participation, comparison_task.id, :yes)
+      assert {:error, :question_not_in_questionnaire} =
+               DataCollection.record_response(
+                 comparison_participation,
+                 comparison_task.id,
+                 "test-binary-question.v1",
+                 :post_a
+               )
 
-      assert "is invalid" in errors_on(comparison_changeset).choice
+      assert {:error, :choice_not_allowed} =
+               DataCollection.record_response(
+                 comparison_participation,
+                 comparison_task.id,
+                 "test-comparison.v1",
+                 :yes
+               )
+
+      SocialCrowdWork.Experiments.Task
+      |> where([task], task.id == ^comparison_task.id)
+      |> Repo.update_all(set: [questionnaire_key: "unknown.v1"])
+
+      assert {:error, :unknown_questionnaire} =
+               DataCollection.record_response(
+                 comparison_participation,
+                 comparison_task.id,
+                 "test-comparison.v1",
+                 :post_a
+               )
+
+      assert {:error, :unknown_questionnaire} =
+               DataCollection.task_page(comparison_participation, comparison_task.position)
 
       binary_condition = condition_fixture(:binary_question)
       binary_run = run_fixture(binary_condition)
       assert {:ok, binary_participation} = assign(binary_condition)
       [binary_task] = binary_run.tasks
 
-      assert {:error, binary_changeset} =
-               DataCollection.record_response(binary_participation, binary_task.id, :equal)
-
-      assert "is invalid" in errors_on(binary_changeset).choice
-
       assert {:ok, response} =
-               DataCollection.record_response(binary_participation, binary_task.id, :no)
+               DataCollection.record_response(
+                 binary_participation,
+                 binary_task.id,
+                 "test-binary-question.v1",
+                 :no
+               )
 
       assert response.choice == :no
+      assert Repo.aggregate(Response, :count) == 1
     end
 
     test "rejects tasks from another run" do
@@ -277,7 +572,12 @@ defmodule SocialCrowdWork.DataCollectionTest do
           else: hd(assigned_run.tasks)
 
       assert {:error, :task_not_in_run} =
-               DataCollection.record_response(participation, outside_task.id, :post_a)
+               DataCollection.record_response(
+                 participation,
+                 outside_task.id,
+                 "test-comparison.v1",
+                 :post_a
+               )
     end
 
     test "the database also prevents cross-run responses" do
@@ -295,6 +595,7 @@ defmodule SocialCrowdWork.DataCollectionTest do
         participation_id: participation.id,
         task_id: outside_task.id,
         run_id: participation.run_id,
+        question_key: "test-comparison.v1",
         choice: :post_a,
         answered_at: DateTime.utc_now() |> DateTime.truncate(:second)
       }
@@ -313,9 +614,29 @@ defmodule SocialCrowdWork.DataCollectionTest do
       assert {:ok, participation} = assign(condition)
       [task] = run.tasks
 
-      assert {:ok, original} = DataCollection.record_response(participation, task.id, :post_a)
-      assert {:ok, updated} = DataCollection.record_response(participation, task.id, :post_b)
-      assert {:ok, same} = DataCollection.record_response(participation, task.id, :post_b)
+      assert {:ok, original} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :post_a
+               )
+
+      assert {:ok, updated} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :post_b
+               )
+
+      assert {:ok, same} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :post_b
+               )
 
       assert updated.id == original.id
       assert updated.inserted_at == original.inserted_at
@@ -324,25 +645,85 @@ defmodule SocialCrowdWork.DataCollectionTest do
       assert Repo.aggregate(Response, :count) == 1
     end
 
-    test "only completes a participation after every task has a response" do
+    test "completion requires exact expected task and question identities and counts skips" do
       condition = condition_fixture()
-      run = run_fixture(condition, %{tasks: [comparison_task(1), comparison_task(2)]})
+
+      run =
+        run_fixture(condition, %{
+          tasks: [
+            comparison_task()
+            |> Map.put(:questionnaire_key, "psychosocial-comparisons.v1")
+          ]
+        })
+
       assert {:ok, participation} = assign(condition)
+      [task] = run.tasks
 
       assert {:error, :tasks_remaining} = DataCollection.complete_participation(participation)
 
-      for task <- run.tasks do
-        assert {:ok, _response} = DataCollection.record_response(participation, task.id, :skip)
+      for question_key <- ["worry.v1", "restlessness.v1"] do
+        assert {:ok, _response} =
+                 DataCollection.record_response(participation, task.id, question_key, :skip)
       end
 
+      assert DataCollection.next_incomplete_task(participation).id == task.id
+      assert {:error, :tasks_remaining} = DataCollection.complete_participation(participation)
+
+      assert {:ok, _response} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "cognitive-disruption.v1",
+                 :skip
+               )
+
+      assert DataCollection.next_incomplete_task(participation) == nil
+      assert {:ok, page} = DataCollection.task_page(participation, 1)
+      assert page.complete?
+      assert page.active_question_key == nil
       assert {:ok, completed} = DataCollection.complete_participation(participation)
       assert completed.status == :completed
       assert completed.completed_at
       assert {:ok, same_completed} = DataCollection.complete_participation(completed)
       assert same_completed.id == completed.id
+      assert same_completed.completed_at == completed.completed_at
 
       assert {:error, :participation_completed} =
-               DataCollection.record_response(completed, hd(run.tasks).id, :post_a)
+               DataCollection.record_response(completed, task.id, "worry.v1", :post_a)
+    end
+
+    test "unexpected response identities keep a task incomplete" do
+      condition = condition_fixture()
+      run = run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+      [task] = run.tasks
+
+      attrs = %{
+        participation_id: participation.id,
+        task_id: task.id,
+        run_id: participation.run_id,
+        question_key: "unexpected.v1",
+        choice: :skip,
+        answered_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      }
+
+      assert {:ok, _unexpected} =
+               %Response{}
+               |> Response.changeset(attrs, :comparison)
+               |> Repo.insert()
+
+      assert {:ok, _expected} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+
+      assert DataCollection.next_incomplete_task(participation).id == task.id
+      assert {:ok, page} = DataCollection.task_page(participation, 1)
+      refute page.complete?
+      assert {:error, :tasks_remaining} = DataCollection.complete_participation(participation)
     end
   end
 
@@ -352,5 +733,10 @@ defmodule SocialCrowdWork.DataCollectionTest do
       participation_attrs(condition),
       "test-consent.v1"
     )
+  end
+
+  defp create_launch(condition, attrs) do
+    assert {:ok, token} = DataCollection.create_participant_launch(condition, attrs)
+    token
   end
 end

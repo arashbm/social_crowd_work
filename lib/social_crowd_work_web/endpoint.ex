@@ -1,8 +1,7 @@
 defmodule SocialCrowdWorkWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :social_crowd_work
 
-  # Prolific identifiers are stored briefly before consent, so the cookie must
-  # be encrypted as well as signed.
+  # Keep application session data confidential as well as tamper-resistant.
   @session_options [
     store: :cookie,
     key: "_social_crowd_work_key",

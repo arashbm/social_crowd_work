@@ -39,7 +39,7 @@ defmodule SocialCrowdWork.ImportsTest do
 
       run = Repo.get_by!(Run, condition_id: condition.id, external_key: "run-001")
       task = Repo.get_by!(Task, run_id: run.id, position: 1)
-      assert task.prompt_key == "test-comparison.v1"
+      assert task.questionnaire_key == "test-comparison.v1"
       assert task.stimuli["post_a"] == post_a
     end
 
@@ -146,28 +146,35 @@ defmodule SocialCrowdWork.ImportsTest do
       assert error.message =~ "contains invalid JSON"
     end
 
-    test "reports unknown prompts and incompatible prompt types at exact paths" do
-      key = unique_key("prompts")
+    test "reports unknown questionnaires and incompatible task types at exact paths" do
+      key = unique_key("questionnaires")
 
-      unknown_prompt =
+      unknown_questionnaire =
         comparison_task_data(1)
-        |> Map.put("prompt_key", "does-not-exist.v1")
+        |> Map.put("questionnaire_key", "does-not-exist.v1")
 
-      incompatible_prompt =
+      incompatible_questionnaire =
         comparison_task_data(2)
-        |> Map.put("prompt_key", "test-binary-question.v1")
+        |> Map.put("questionnaire_key", "test-binary-question.v1")
 
       contents =
         encode_manifest([
-          condition_data(key, [run_data("run-001", [unknown_prompt, incompatible_prompt])])
+          condition_data(key, [
+            run_data("run-001", [unknown_questionnaire, incompatible_questionnaire])
+          ])
         ])
 
       assert {:error, errors} = Imports.validate_manifest(contents)
-      assert_error(errors, "conditions[0].runs[0].tasks[0].prompt_key", "is not a known prompt")
 
       assert_error(
         errors,
-        "conditions[0].runs[0].tasks[1].prompt_key",
+        "conditions[0].runs[0].tasks[0].questionnaire_key",
+        "is not a known questionnaire"
+      )
+
+      assert_error(
+        errors,
+        "conditions[0].runs[0].tasks[1].questionnaire_key",
         "is not compatible with comparison"
       )
     end
@@ -227,7 +234,7 @@ defmodule SocialCrowdWork.ImportsTest do
           run_data("run-001", [
             %{
               "position" => 1,
-              "prompt_key" => "test-binary-question.v1",
+              "questionnaire_key" => "test-binary-question.v1",
               "stimuli" => %{"post" => %{"text" => "A binary task post", "extra" => 1}}
             }
           ])
@@ -237,6 +244,23 @@ defmodule SocialCrowdWork.ImportsTest do
       assert {:ok, plan} = Imports.validate_manifest(encode_manifest([condition]))
       assert hd(plan.conditions).task_type == :binary_question
     end
+
+    test "requires task positions to be contiguous from one" do
+      tasks = [comparison_task_data(1), comparison_task_data(3)]
+
+      contents =
+        encode_manifest([
+          condition_data(unique_key("positions"), [run_data("run-001", tasks)])
+        ])
+
+      assert {:error, errors} = Imports.validate_manifest(contents)
+
+      assert_error(
+        errors,
+        "conditions[0].runs[0].tasks[1].position",
+        "must be 2"
+      )
+    end
   end
 
   defp valid_manifest(condition_key) do
@@ -244,7 +268,7 @@ defmodule SocialCrowdWork.ImportsTest do
   end
 
   defp encode_manifest(conditions) do
-    Jason.encode!(%{"format_version" => "1", "conditions" => conditions})
+    Jason.encode!(%{"format_version" => "2", "conditions" => conditions})
   end
 
   defp condition_data(key, runs) do
@@ -263,7 +287,7 @@ defmodule SocialCrowdWork.ImportsTest do
   defp comparison_task_data(position, post_a \\ %{"text" => "First post"}) do
     %{
       "position" => position,
-      "prompt_key" => "test-comparison.v1",
+      "questionnaire_key" => "test-comparison.v1",
       "stimuli" => %{
         "post_a" => post_a,
         "post_b" => %{"text" => "Second post"}

@@ -1,7 +1,7 @@
 defmodule SocialCrowdWorkWeb.AdminLive.RunShow do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.{AdminPanel, Prompts}
+  alias SocialCrowdWork.{AdminPanel, Questionnaires}
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -56,12 +56,24 @@ defmodule SocialCrowdWorkWeb.AdminLive.RunShow do
             <div>
               <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
                 Task {task.position}
-              </p><h2 class="mt-1 font-semibold text-slate-950 dark:text-white">{task.prompt_key}</h2>
+              </p><h2 class="mt-1 font-semibold text-slate-950 dark:text-white">
+                {task.questionnaire_key}
+              </h2>
             </div>
-            <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:bg-slate-800">{prompt_status(
-              task.prompt_key
+            <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold dark:bg-slate-800">{questionnaire_status(
+              task.questionnaire_key
             )}</span>
           </div>
+          <ol class="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <li
+              :for={{question, number} <- questions(task.questionnaire_key)}
+              id={"task-#{task.id}-question-#{number}"}
+              class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950/60"
+            >
+              <span class="mr-2 font-bold text-indigo-600 dark:text-indigo-300">{number}.</span>
+              <code>{question.key()}</code>
+            </li>
+          </ol>
           <pre class="mt-5 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-200"><code>{Jason.encode!(task.stimuli, pretty: true)}</code></pre>
         </article>
       </div>
@@ -69,10 +81,17 @@ defmodule SocialCrowdWorkWeb.AdminLive.RunShow do
     """
   end
 
-  defp prompt_status(key) do
-    case Prompts.fetch(key) do
-      {:ok, _prompt} -> "Prompt available"
-      :error -> "Prompt missing"
+  defp questionnaire_status(key) do
+    case Questionnaires.fetch(key) do
+      {:ok, _questionnaire} -> "Questionnaire available"
+      :error -> "Questionnaire missing"
+    end
+  end
+
+  defp questions(key) do
+    case Questionnaires.fetch(key) do
+      {:ok, questionnaire} -> Enum.with_index(questionnaire.questions(), 1)
+      :error -> []
     end
   end
 end

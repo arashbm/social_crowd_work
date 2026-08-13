@@ -1,5 +1,5 @@
 {
-  "format_version": "1",
+  "format_version": "2",
   "conditions": [
     {
       "key": "dev-comparison-en",
@@ -14,7 +14,7 @@
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The train was ten minutes late, but the staff kept everyone informed.", "source": {"platform": "bluesky", "id": "dev-c01-a"}},
                 "post_b": {"text": "Another delay. Apparently nobody here knows how to run a railway.", "source": {"platform": "bluesky", "id": "dev-c01-b"}}
@@ -22,7 +22,7 @@
             },
             {
               "position": 2,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "I tried the update this morning and the new layout is easy to navigate.", "language": "en"},
                 "post_b": {"text": "The update moved everything around again. What a pointless mess.", "language": "en"}
@@ -30,7 +30,7 @@
             },
             {
               "position": 3,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "Rain all weekend.\nAt least the garden needed it.", "format": "multiline"},
                 "post_b": {"text": "Rain is expected throughout the weekend.", "format": "single-line"}
@@ -43,7 +43,7 @@
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The cafe was busy, so our order took a little longer than usual."},
                 "post_b": {"text": "Forty minutes for a sandwich. I will not make that mistake twice."}
@@ -51,7 +51,7 @@
             },
             {
               "position": 2,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The documentation could use another example, but the API itself works well.", "metrics": {"likes": 4, "reposts": 1}},
                 "post_b": {"text": "Who approved documentation this incomplete?", "metrics": {"likes": 2, "reposts": 0}}
@@ -59,7 +59,7 @@
             },
             {
               "position": 3,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "I missed the first half, but the concert sounded great from outside."},
                 "post_b": {"text": "The concert started at eight as advertised."}
@@ -72,7 +72,7 @@
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "This recipe took longer than expected, though the result was worth it."},
                 "post_b": {"text": "Three hours of work for something completely forgettable."}
@@ -80,7 +80,7 @@
             },
             {
               "position": 2,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The library closes early on Fridays."},
                 "post_b": {"text": "Of course the library closes exactly when working people can finally visit."}
@@ -88,7 +88,7 @@
             },
             {
               "position": 3,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "<script>alert('example')</script> should display as text, not markup.", "purpose": "escaping-check"},
                 "post_b": {"text": "HTML-like examples should be shown safely.", "purpose": "escaping-check"}
@@ -101,7 +101,7 @@
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The package arrived with a small dent, but everything inside was fine."},
                 "post_b": {"text": "They clearly threw this package around before delivering it."}
@@ -109,7 +109,7 @@
             },
             {
               "position": 2,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The meeting covered all four agenda items."},
                 "post_b": {"text": "Another meeting that could have been a two-line email."}
@@ -117,7 +117,7 @@
             },
             {
               "position": 3,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The park is quieter during the winter months."},
                 "post_b": {"text": "The park was quiet today."}
@@ -130,7 +130,7 @@
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The support reply was brief but answered the question."},
                 "post_b": {"text": "Support sent a canned response and apparently did not read the question."}
@@ -138,7 +138,7 @@
             },
             {
               "position": 2,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The first draft has several areas we can improve together."},
                 "post_b": {"text": "This draft is nowhere near ready for review."}
@@ -146,7 +146,7 @@
             },
             {
               "position": 3,
-              "prompt_key": "dev-negative-tone.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {"text": "The match ended without a goal."},
                 "post_b": {"text": "Neither team scored in the match."}
@@ -167,41 +167,41 @@
         {
           "key": "dev-binary-run-01",
           "tasks": [
-            {"position": 1, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "I have reset this password three times and it still will not let me sign in.", "labels": ["account", "support"]}}},
-            {"position": 2, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The password reset instructions are available on the account page."}}},
-            {"position": 3, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "I finally got the report to export after trying every format in the menu."}}}
+            {"position": 1, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "I have reset this password three times and it still will not let me sign in.", "labels": ["account", "support"]}}},
+            {"position": 2, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The password reset instructions are available on the account page."}}},
+            {"position": 3, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "I finally got the report to export after trying every format in the menu."}}}
           ]
         },
         {
           "key": "dev-binary-run-02",
           "tasks": [
-            {"position": 1, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "Why does this printer jam every single time I need it?"}}},
-            {"position": 2, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The printer is beside the window on the second floor."}}},
-            {"position": 3, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The queue moved slowly today, but the staff member was helpful."}}}
+            {"position": 1, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "Why does this printer jam every single time I need it?"}}},
+            {"position": 2, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The printer is beside the window on the second floor."}}},
+            {"position": 3, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The queue moved slowly today, but the staff member was helpful."}}}
           ]
         },
         {
           "key": "dev-binary-run-03",
           "tasks": [
-            {"position": 1, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "I followed the tutorial exactly and ended up with a completely different result.", "source": {"platform": "bluesky", "id": "dev-b03-1"}}}},
-            {"position": 2, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The tutorial has six steps and includes a downloadable example."}}},
-            {"position": 3, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "After an hour on hold, the call disconnected."}}}
+            {"position": 1, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "I followed the tutorial exactly and ended up with a completely different result.", "source": {"platform": "bluesky", "id": "dev-b03-1"}}}},
+            {"position": 2, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The tutorial has six steps and includes a downloadable example."}}},
+            {"position": 3, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "After an hour on hold, the call disconnected."}}}
           ]
         },
         {
           "key": "dev-binary-run-04",
           "tasks": [
-            {"position": 1, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The bus left early again, so now I am waiting another thirty minutes."}}},
-            {"position": 2, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "The next bus arrives in thirty minutes."}}},
-            {"position": 3, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "I wish the schedule were easier to read on a phone.\nThe desktop version is fine.", "format": "multiline"}}}
+            {"position": 1, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The bus left early again, so now I am waiting another thirty minutes."}}},
+            {"position": 2, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "The next bus arrives in thirty minutes."}}},
+            {"position": 3, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "I wish the schedule were easier to read on a phone.\nThe desktop version is fine.", "format": "multiline"}}}
           ]
         },
         {
           "key": "dev-binary-run-05",
           "tasks": [
-            {"position": 1, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "Every update fixes one thing and breaks two others."}}},
-            {"position": 2, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "A maintenance update will be released on Tuesday."}}},
-            {"position": 3, "prompt_key": "dev-expresses-frustration.v1", "stimuli": {"post": {"text": "I cannot believe the save button disappeared after I finished the whole form."}}}
+            {"position": 1, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "Every update fixes one thing and breaks two others."}}},
+            {"position": 2, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "A maintenance update will be released on Tuesday."}}},
+            {"position": 3, "questionnaire_key": "dev-binary-question.v1", "stimuli": {"post": {"text": "I cannot believe the save button disappeared after I finished the whole form."}}}
           ]
         }
       ]

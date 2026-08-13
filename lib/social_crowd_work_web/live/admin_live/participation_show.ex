@@ -1,23 +1,38 @@
 defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.AdminPanel
+  alias SocialCrowdWork.{AdminPanel, Questionnaires}
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     participation = AdminPanel.get_participation!(socket.assigns.current_scope, id)
-    responses = Map.new(participation.responses, &{&1.task_id, &1})
+    responses = Map.new(participation.responses, &{{&1.task_id, &1.question_key}, &1})
 
     task_rows =
       participation.run.tasks
       |> Enum.sort_by(& &1.position)
-      |> Enum.map(&%{task: &1, response: Map.get(responses, &1.id)})
+      |> Enum.flat_map(fn task ->
+        questionnaire = Questionnaires.fetch!(task.questionnaire_key)
+
+        questionnaire.questions()
+        |> Enum.with_index(1)
+        |> Enum.map(fn {question, number} ->
+          %{
+            task: task,
+            question: question,
+            question_number: number,
+            response: Map.get(responses, {task.id, question.key()})
+          }
+        end)
+      end)
 
     {:ok,
      socket
      |> assign(:page_title, "Participation #{participation.id}")
      |> assign(:participation, participation)
-     |> stream(:task_rows, task_rows, dom_id: fn %{task: task} -> "task-response-#{task.id}" end)}
+     |> stream(:task_rows, task_rows,
+       dom_id: fn row -> "task-#{row.task.id}-question-#{row.question_number}" end
+     )}
   end
 
   @impl true
@@ -85,7 +100,9 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
       </section>
 
       <section class="mt-7">
-        <h2 class="mb-4 text-lg font-semibold text-slate-950 dark:text-white">Task responses</h2>
+        <h2 class="mb-4 text-lg font-semibold text-slate-950 dark:text-white">
+          Task and question responses
+        </h2>
         <div id="participation-responses" phx-update="stream" class="space-y-3">
           <article
             :for={{id, row} <- @streams.task_rows}
@@ -94,8 +111,9 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
           >
             <div>
               <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
-                Task {row.task.position}
-              </p><p class="mt-1 font-medium">{row.task.prompt_key}</p>
+                Task {row.task.position} · Question {row.question_number}
+              </p><p class="mt-1 font-medium">{row.task.questionnaire_key}</p>
+              <code class="mt-1 block text-xs text-slate-500">{row.question.key()}</code>
             </div>
             <%= if row.response do %>
               <div class="text-right">

@@ -24,6 +24,8 @@ config :social_crowd_work,
   ecto_repos: [SocialCrowdWork.Repo],
   generators: [timestamp_type: :utc_datetime],
   max_manifest_upload_size: 100_000_000,
+  participant_launch_pre_consent_ttl_seconds: 86_400,
+  participant_launch_post_consent_ttl_seconds: 604_800,
   prolific_completion_url: "https://app.prolific.com/submissions/complete"
 
 # Configure the endpoint
@@ -82,6 +84,8 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 config :phoenix, :filter_parameters, [
+  "launch_token",
+  "entry_token",
   "PROLIFIC_PID",
   "STUDY_ID",
   "SESSION_ID",

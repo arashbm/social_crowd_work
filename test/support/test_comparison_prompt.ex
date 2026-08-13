@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.TestComparisonPrompt do
   def key, do: "test-comparison.v1"
 
   @impl true
+  def title, do: "Which test post matches the test criterion?"
+
+  @impl true
   def task_type, do: :comparison
 
   @impl true

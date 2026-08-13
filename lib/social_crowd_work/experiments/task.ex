@@ -10,7 +10,7 @@ defmodule SocialCrowdWork.Experiments.Task do
 
   schema "tasks" do
     field :position, :integer
-    field :prompt_key, :string
+    field :questionnaire_key, :string
     field :stimuli, :map
 
     belongs_to :run, Run
@@ -21,15 +21,15 @@ defmodule SocialCrowdWork.Experiments.Task do
 
   def changeset(task, attrs, task_type) do
     task
-    |> cast(attrs, [:run_id, :position, :prompt_key, :stimuli])
-    |> validate_required([:run_id, :position, :prompt_key, :stimuli])
+    |> cast(attrs, [:run_id, :position, :questionnaire_key, :stimuli])
+    |> validate_required([:run_id, :position, :questionnaire_key, :stimuli])
     |> validate_number(:position, greater_than: 0)
-    |> validate_length(:prompt_key, min: 1, max: 255)
+    |> validate_length(:questionnaire_key, min: 1, max: 255)
     |> validate_stimuli(task_type)
     |> foreign_key_constraint(:run_id)
     |> unique_constraint(:position, name: :tasks_run_id_position_index)
     |> check_constraint(:position, name: :tasks_position_positive)
-    |> check_constraint(:prompt_key, name: :tasks_prompt_key_not_blank)
+    |> check_constraint(:questionnaire_key, name: :tasks_questionnaire_key_not_blank)
     |> check_constraint(:stimuli, name: :tasks_stimuli_is_object)
   end
 

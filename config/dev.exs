@@ -50,6 +50,7 @@ config :social_crowd_work,
     SocialCrowdWork.DevComparisonPrompt,
     SocialCrowdWork.DevBinaryQuestionPrompt
   ],
+  questionnaire_modules: [SocialCrowdWork.DevBinaryQuestionQuestionnaire],
   consent_modules: [SocialCrowdWork.DevConsent],
   prolific_completion_url: "http://localhost:4000/dev/prolific-complete"
 

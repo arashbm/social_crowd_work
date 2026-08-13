@@ -10,8 +10,9 @@ defmodule SocialCrowdWork.AdminPanel do
   alias SocialCrowdWork.DataCollection.Participation
   alias SocialCrowdWork.Experiments
   alias SocialCrowdWork.Experiments.{Condition, ImportBatch, Run, Task}
-  alias SocialCrowdWork.Repo
   alias SocialCrowdWork.Imports
+  alias SocialCrowdWork.Questionnaires
+  alias SocialCrowdWork.Repo
 
   def dashboard_stats(%Scope{}) do
     assigned_run_ids = from(participation in Participation, select: participation.run_id)
@@ -124,6 +125,24 @@ defmodule SocialCrowdWork.AdminPanel do
     Participation
     |> Repo.get!(id)
     |> Repo.preload([:responses, run: [:condition, :tasks]])
+  end
+
+  def participation_progress(%Participation{} = participation) do
+    expected_pairs =
+      participation.run.tasks
+      |> Enum.flat_map(fn task ->
+        questionnaire = Questionnaires.fetch!(task.questionnaire_key)
+        Enum.map(questionnaire.questions(), &{task.id, &1.key()})
+      end)
+      |> MapSet.new()
+
+    answered_pairs =
+      participation.responses
+      |> Enum.map(&{&1.task_id, &1.question_key})
+      |> MapSet.new()
+      |> MapSet.intersection(expected_pairs)
+
+    %{answered: MapSet.size(answered_pairs), expected: MapSet.size(expected_pairs)}
   end
 
   defp condition_summary(condition) do

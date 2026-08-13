@@ -4,7 +4,6 @@ defmodule SocialCrowdWorkWeb.ParticipationController do
   alias SocialCrowdWork.Experiments
   alias SocialCrowdWork.{DataCollection, Prolific}
   alias SocialCrowdWork.Experiments.Condition
-  alias SocialCrowdWorkWeb.ParticipantContexts
 
   @prolific_fields [
     prolific_participant_id: "PROLIFIC_PID",
@@ -20,19 +19,10 @@ defmodule SocialCrowdWorkWeb.ParticipationController do
 
     with %Condition{} = condition <- Experiments.get_condition_by_entry_token(entry_token),
          :ok <- validate_context(context),
-         :ok <- validate_study(condition, context) do
-      context = Map.put(context, "condition_id", condition.id)
-
-      case ParticipantContexts.put(contexts(conn), context) do
-        {:ok, contexts, context_token} ->
-          conn
-          |> configure_session(renew: true)
-          |> put_session(ParticipantContexts.session_key(), contexts)
-          |> redirect(to: ~p"/participate/#{context_token}")
-
-        {:error, reason} ->
-          redirect_error(conn, reason)
-      end
+         :ok <- validate_study(condition, context),
+         {:ok, launch_token} <-
+           DataCollection.create_participant_launch(condition, participant_attrs(context)) do
+      redirect(conn, to: ~p"/participate/#{launch_token}")
     else
       nil -> redirect_error(conn, :unknown_condition)
       {:error, reason} -> redirect_error(conn, reason)
@@ -43,38 +33,24 @@ defmodule SocialCrowdWorkWeb.ParticipationController do
     render(conn, :error, reason: error_reason(params["reason"]))
   end
 
-  def decline(conn, %{"context_token" => context_token}) do
-    conn
-    |> put_contexts(ParticipantContexts.delete(contexts(conn), context_token))
-    |> redirect(to: ~p"/participate/declined")
+  def decline(conn, %{"launch_token" => launch_token}) do
+    case DataCollection.decline_participant_launch(launch_token) do
+      {:ok, _launch} -> redirect(conn, to: ~p"/participate/declined")
+      {:error, _reason} -> redirect(conn, to: ~p"/participate/#{launch_token}")
+    end
   end
 
   def declined(conn, _params) do
     render(conn, :declined)
   end
 
-  def complete(conn, %{"context_token" => context_token}) do
-    with {:ok, context} <- ParticipantContexts.fetch(get_session(conn), context_token),
-         %Condition{} = condition <- Experiments.get_condition(context["condition_id"]),
-         {:ok, participation} <-
-           DataCollection.resume_participation(condition, participant_attrs(context)),
-         :completed <- participation.status do
-      conn
-      |> put_contexts(ParticipantContexts.delete(contexts(conn), context_token))
-      |> redirect(external: Prolific.completion_url(condition.prolific_completion_code))
+  def complete(conn, %{"launch_token" => launch_token}) do
+    with {:ok, %{condition: %Condition{} = condition}} <-
+           DataCollection.complete_participant_launch(launch_token) do
+      redirect(conn, external: Prolific.completion_url(condition.prolific_completion_code))
     else
-      _other -> redirect(conn, to: ~p"/participate/#{context_token}")
+      _other -> redirect(conn, to: ~p"/participate/#{launch_token}")
     end
-  end
-
-  defp put_contexts(conn, contexts) do
-    conn
-    |> configure_session(renew: true)
-    |> put_session(ParticipantContexts.session_key(), contexts)
-  end
-
-  defp contexts(conn) do
-    get_session(conn, ParticipantContexts.session_key()) || %{}
   end
 
   defp participant_attrs(context) do
@@ -92,7 +68,6 @@ defmodule SocialCrowdWorkWeb.ParticipationController do
   defp error_reason("unknown_condition"), do: :unknown_condition
   defp error_reason("invalid_prolific_parameters"), do: :invalid_prolific_parameters
   defp error_reason("prolific_study_mismatch"), do: :prolific_study_mismatch
-  defp error_reason("capacity_reached"), do: :capacity_reached
   defp error_reason(_reason), do: :entry_error
 
   defp validate_context(context) do

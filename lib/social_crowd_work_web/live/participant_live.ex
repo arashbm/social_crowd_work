@@ -1,10 +1,9 @@
 defmodule SocialCrowdWorkWeb.ParticipantLive do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.{Consents, DataCollection, Experiments, Prompts}
+  alias SocialCrowdWork.{Consents, DataCollection}
   alias SocialCrowdWork.DataCollection.Participation
   alias SocialCrowdWork.Experiments.Condition
-  alias SocialCrowdWorkWeb.ParticipantContexts
 
   @choices %{
     "post_a" => :post_a,
@@ -16,31 +15,32 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   }
 
   @impl true
-  def mount(%{"context_token" => context_token}, session, socket) do
+  def mount(%{"launch_token" => launch_token}, _session, socket) do
     socket =
       socket
       |> assign(:current_scope, %{})
       |> assign(:state, :loading)
       |> assign(:condition, nil)
-      |> assign(:context_token, context_token)
+      |> assign(:launch_token, launch_token)
       |> assign(:participant_context, nil)
       |> assign(:participation, nil)
       |> assign(:consent, nil)
       |> assign(:task, nil)
-      |> assign(:prompt, nil)
-      |> assign(:response, nil)
+      |> assign(:questionnaire, nil)
+      |> assign(:questions, [])
+      |> assign(:active_question_key, nil)
       |> assign(:total_tasks, 0)
-      |> load_session(session, context_token)
+      |> load_launch(launch_token)
 
     {:ok, socket}
   end
 
   @impl true
   def handle_event("accept_consent", _params, %{assigns: %{state: :consent}} = socket) do
-    condition = socket.assigns.condition
-    context = socket.assigns.participant_context
-
-    case DataCollection.consent_and_assign_run(condition, context, condition.consent_key) do
+    case DataCollection.consent_and_assign_run(
+           socket.assigns.launch_token,
+           socket.assigns.condition.consent_key
+         ) do
       {:ok, participation} ->
         {:noreply, load_participation(socket, participation)}
 
@@ -56,20 +56,27 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   def handle_event(
         "answer",
-        %{"choice" => choice, "position" => submitted_position},
+        %{
+          "choice" => choice,
+          "position" => submitted_position,
+          "question_key" => question_key
+        },
         %{assigns: %{state: :task}} = socket
       ) do
     with {position, ""} <- Integer.parse(submitted_position),
          true <- position == socket.assigns.task.position,
+         true <- question_key == socket.assigns.active_question_key,
+         %{module: question} <- question_by_key(socket.assigns.questions, question_key),
          {:ok, choice} <- choice_from_string(choice),
-         true <- choice in socket.assigns.prompt.choices(),
+         true <- choice in question.choices(),
          {:ok, _response} <-
            DataCollection.record_response(
              socket.assigns.participation,
              socket.assigns.task.id,
+             question_key,
              choice
            ) do
-      advance(socket)
+      after_answer(socket)
     else
       false ->
         {:noreply, socket}
@@ -90,11 +97,28 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   def handle_event("answer", _params, socket), do: {:noreply, socket}
 
+  def handle_event(
+        "open_question",
+        %{"position" => submitted_position, "question_key" => question_key},
+        %{assigns: %{state: :task}} = socket
+      ) do
+    with {position, ""} <- Integer.parse(submitted_position),
+         true <- position == socket.assigns.task.position,
+         %{response: response} when not is_nil(response) <-
+           question_by_key(socket.assigns.questions, question_key) do
+      {:noreply, assign(socket, :active_question_key, question_key)}
+    else
+      _other -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("open_question", _params, socket), do: {:noreply, socket}
+
   def handle_event("previous", _params, %{assigns: %{state: :task}} = socket) do
     previous_position = socket.assigns.task.position - 1
 
     if previous_position > 0 do
-      {:noreply, load_task(socket, previous_position)}
+      {:noreply, load_task(socket, previous_position, :first_answered)}
     else
       {:noreply, socket}
     end
@@ -113,12 +137,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       >
         <%= case @state do %>
           <% :consent -> %>
-            <.consent_panel consent={@consent} context_token={@context_token} />
+            <.consent_panel consent={@consent} launch_token={@launch_token} />
           <% :task -> %>
             <.task_panel
               task={@task}
-              prompt={@prompt}
-              response={@response}
+              questionnaire={@questionnaire}
+              questions={@questions}
+              active_question_key={@active_question_key}
               total_tasks={@total_tasks}
             />
           <% :completed -> %>
@@ -130,7 +155,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             >
               <a
                 id="complete-on-prolific"
-                href={~p"/participate/#{@context_token}/complete"}
+                href={~p"/participate/#{@launch_token}/complete"}
                 rel="noreferrer"
                 data-shortcut="Enter,space"
                 class="inline-flex items-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
@@ -216,7 +241,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :consent, :any, required: true
-  attr :context_token, :string, required: true
+  attr :launch_token, :string, required: true
 
   defp consent_panel(assigns) do
     ~H"""
@@ -230,7 +255,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       <div class="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 px-7 py-6 transition-colors dark:border-slate-700 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between sm:px-11">
         <.link
           id="decline-consent"
-          href={~p"/participate/#{@context_token}/decline"}
+          href={~p"/participate/#{@launch_token}/decline"}
+          method="delete"
           class="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           I do not consent
@@ -251,8 +277,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :task, :any, required: true
-  attr :prompt, :any, required: true
-  attr :response, :any, default: nil
+  attr :questionnaire, :any, required: true
+  attr :questions, :list, required: true
+  attr :active_question_key, :string, default: nil
   attr :total_tasks, :integer, required: true
 
   defp task_panel(assigns) do
@@ -274,13 +301,31 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       </header>
 
       <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:p-9">
-        {render_definition(@prompt)}
-
-        <%= if @prompt.task_type() == :comparison do %>
-          <.comparison_actions task={@task} response={@response} />
+        <%= if @questionnaire.task_type() == :comparison do %>
+          <div class="grid gap-4 md:grid-cols-2" id="comparison-posts">
+            <.post_card id="post-a" label="Post A" text={@task.stimuli["post_a"]["text"]} />
+            <.post_card id="post-b" label="Post B" text={@task.stimuli["post_b"]["text"]} />
+          </div>
         <% else %>
-          <.binary_actions task={@task} response={@response} />
+          <article
+            id="single-post"
+            class="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:p-8"
+          >
+            <p class="whitespace-pre-wrap break-words text-base leading-7 text-slate-800 dark:text-slate-100 sm:text-lg">
+              {@task.stimuli["post"]["text"]}
+            </p>
+          </article>
         <% end %>
+
+        <div id="questionnaire-accordion" class="mt-6 space-y-3">
+          <.question_item
+            :for={question <- @questions}
+            task={@task}
+            questionnaire={@questionnaire}
+            question={question}
+            active?={question.key == @active_question_key}
+          />
+        </div>
       </div>
 
       <footer class="flex items-center justify-between gap-4">
@@ -304,30 +349,104 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :task, :any, required: true
-  attr :response, :any, default: nil
+  attr :questionnaire, :any, required: true
+  attr :question, :map, required: true
+  attr :active?, :boolean, required: true
+
+  defp question_item(assigns) do
+    locked? = is_nil(assigns.question.response) and not assigns.active?
+
+    assigns =
+      assigns
+      |> assign(:locked?, locked?)
+      |> assign(:answered?, not is_nil(assigns.question.response))
+
+    ~H"""
+    <section
+      id={"question-#{@question.number}"}
+      data-question-key={@question.key}
+      data-state={question_state(@active?, @answered?)}
+      class={[
+        "overflow-hidden rounded-2xl border transition duration-300",
+        @active? &&
+          "border-indigo-400 bg-indigo-50/60 shadow-sm dark:border-indigo-500 dark:bg-indigo-500/10",
+        @answered? && not @active? &&
+          "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+        @locked? &&
+          "border-slate-200 bg-slate-50 opacity-50 dark:border-slate-800 dark:bg-slate-950/40"
+      ]}
+    >
+      <button
+        id={"question-#{@question.number}-header"}
+        type="button"
+        phx-click="open_question"
+        phx-value-position={@task.position}
+        phx-value-question_key={@question.key}
+        aria-expanded={to_string(@active?)}
+        aria-controls={"question-#{@question.number}-region"}
+        disabled={@locked? or @active?}
+        class="flex w-full items-center gap-4 px-5 py-4 text-left disabled:cursor-default sm:px-6"
+      >
+        <span class={[
+          "flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+          @active? && "bg-indigo-700 text-white dark:bg-indigo-500",
+          not @active? && "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200"
+        ]}>
+          {@question.number}
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+            Question {@question.number}
+          </span>
+          <span class="mt-1 block font-semibold leading-6 text-slate-900 dark:text-white">
+            {@question.module.title()}
+          </span>
+        </span>
+        <span :if={@answered?} class="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+          {answer_summary(@question.response.choice)}
+        </span>
+        <span :if={@locked?} class="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Locked
+        </span>
+      </button>
+
+      <div class={if(@active?, do: "grid grid-rows-[1fr]", else: "grid grid-rows-[0fr]") <> " transition-[grid-template-rows] duration-300"}>
+        <div class="overflow-hidden">
+          <div
+            id={"question-#{@question.number}-region"}
+            role="region"
+            aria-labelledby={"question-#{@question.number}-header"}
+            class="border-t border-indigo-200 px-5 py-6 dark:border-indigo-500/30 sm:px-6"
+          >
+            <%= if @active? do %>
+              {render_definition(@question.module)}
+              <%= if @questionnaire.task_type() == :comparison do %>
+                <.comparison_actions task={@task} question={@question} />
+              <% else %>
+                <.binary_actions task={@task} question={@question} />
+              <% end %>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  attr :task, :any, required: true
+  attr :question, :map, required: true
 
   defp comparison_actions(assigns) do
     ~H"""
-    <div class="mt-8 grid gap-4 md:grid-cols-2" id="comparison-posts">
-      <.post_card
-        id="post-a"
-        label="Post A"
-        text={@task.stimuli["post_a"]["text"]}
-      />
-      <.post_card
-        id="post-b"
-        label="Post B"
-        text={@task.stimuli["post_b"]["text"]}
-      />
-    </div>
-    <div id="comparison-answer-options" class="mt-4 grid gap-3 sm:grid-cols-3">
+    <div id="comparison-answer-options" class="mt-5 grid gap-3 sm:grid-cols-3">
       <.compact_choice
         id="answer-post-a"
         label="Post A"
         shortcut="A"
         choice="post_a"
         position={@task.position}
-        selected={selected?(@response, :post_a)}
+        question_key={@question.key}
+        selected={selected?(@question.response, :post_a)}
       />
       <.compact_choice
         id="answer-equal"
@@ -335,7 +454,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         shortcut="S"
         choice="equal"
         position={@task.position}
-        selected={selected?(@response, :equal)}
+        question_key={@question.key}
+        selected={selected?(@question.response, :equal)}
       />
       <.compact_choice
         id="answer-post-b"
@@ -343,39 +463,37 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         shortcut="D"
         choice="post_b"
         position={@task.position}
-        selected={selected?(@response, :post_b)}
+        question_key={@question.key}
+        selected={selected?(@question.response, :post_b)}
       />
     </div>
     <div
       id="comparison-skip"
       class="mt-6 flex justify-end border-t border-slate-200 pt-4 dark:border-slate-700"
     >
-      <.skip_choice position={@task.position} selected={selected?(@response, :skip)} />
+      <.skip_choice
+        position={@task.position}
+        question_key={@question.key}
+        selected={selected?(@question.response, :skip)}
+      />
     </div>
     """
   end
 
   attr :task, :any, required: true
-  attr :response, :any, default: nil
+  attr :question, :map, required: true
 
   defp binary_actions(assigns) do
     ~H"""
-    <article
-      id="single-post"
-      class="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-6 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:p-8"
-    >
-      <p class="whitespace-pre-wrap break-words text-base leading-7 text-slate-800 dark:text-slate-100 sm:text-lg">
-        {@task.stimuli["post"]["text"]}
-      </p>
-    </article>
-    <div id="binary-answer-options" class="mt-4 grid gap-3 sm:grid-cols-2">
+    <div id="binary-answer-options" class="mt-5 grid gap-3 sm:grid-cols-2">
       <.compact_choice
         id="answer-yes"
         label="Yes"
         shortcut="A"
         choice="yes"
         position={@task.position}
-        selected={selected?(@response, :yes)}
+        question_key={@question.key}
+        selected={selected?(@question.response, :yes)}
       />
       <.compact_choice
         id="answer-no"
@@ -383,14 +501,19 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         shortcut="S"
         choice="no"
         position={@task.position}
-        selected={selected?(@response, :no)}
+        question_key={@question.key}
+        selected={selected?(@question.response, :no)}
       />
     </div>
     <div
       id="binary-skip"
       class="mt-6 flex justify-end border-t border-slate-200 pt-4 dark:border-slate-700"
     >
-      <.skip_choice position={@task.position} selected={selected?(@response, :skip)} />
+      <.skip_choice
+        position={@task.position}
+        question_key={@question.key}
+        selected={selected?(@question.response, :skip)}
+      />
     </div>
     """
   end
@@ -420,6 +543,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   attr :shortcut, :string, required: true
   attr :choice, :string, required: true
   attr :position, :integer, required: true
+  attr :question_key, :string, required: true
   attr :selected, :boolean, default: false
 
   defp compact_choice(assigns) do
@@ -430,6 +554,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       phx-click="answer"
       phx-value-choice={@choice}
       phx-value-position={@position}
+      phx-value-question_key={@question_key}
       data-shortcut={String.downcase(@shortcut)}
       aria-pressed={to_string(@selected)}
       class={[
@@ -447,6 +572,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :position, :integer, required: true
+  attr :question_key, :string, required: true
   attr :selected, :boolean, default: false
 
   defp skip_choice(assigns) do
@@ -457,6 +583,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       phx-click="answer"
       phx-value-choice="skip"
       phx-value-position={@position}
+      phx-value-question_key={@question_key}
       data-shortcut="x"
       aria-pressed={to_string(@selected)}
       class={[
@@ -518,23 +645,22 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     """
   end
 
-  defp load_session(socket, session, context_token) do
-    with {:ok, context} <- ParticipantContexts.fetch(session, context_token),
-         condition_id when is_integer(condition_id) <- Map.get(context, "condition_id"),
-         %Condition{} = condition <- Experiments.get_condition(condition_id),
-         participant_context <- participant_attrs(context) do
+  defp load_launch(socket, launch_token) do
+    with {:ok, context} <- DataCollection.resolve_participant_launch(launch_token),
+         %Condition{} = condition <- context.condition do
+      participant_context = participant_attrs(context.launch)
+
       socket =
         socket
         |> assign(:condition, condition)
         |> assign(:participant_context, participant_context)
 
-      case DataCollection.resume_participation(condition, participant_context) do
-        {:ok, participation} -> load_participation(socket, participation)
-        {:error, :not_found} -> load_consent(socket, condition)
-        {:error, reason} -> assign_error(socket, reason)
+      case context.participation do
+        %Participation{} = participation -> load_participation(socket, participation)
+        nil -> load_consent(socket, condition)
       end
     else
-      _other -> assign_error(socket, :invalid_session)
+      _other -> assign_error(socket, :invalid_launch)
     end
   end
 
@@ -557,7 +683,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   defp load_participation(socket, participation) do
     socket = assign(socket, :participation, participation)
 
-    case DataCollection.next_unanswered_task(participation) do
+    case DataCollection.next_incomplete_task(participation) do
       nil ->
         case DataCollection.complete_participation(participation) do
           {:ok, completed} -> socket |> assign(:participation, completed) |> load_completed()
@@ -569,58 +695,97 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     end
   end
 
-  defp load_task(socket, position) do
+  defp load_task(socket, position, active \\ :next_unanswered) do
     case DataCollection.task_page(socket.assigns.participation, position) do
       {:ok, page} ->
-        case Prompts.fetch(page.task.prompt_key) do
-          {:ok, prompt} ->
-            socket
-            |> assign(:task, page.task)
-            |> assign(:prompt, prompt)
-            |> assign(:response, page.response)
-            |> assign(:total_tasks, page.total_tasks)
-            |> assign(:state, :task)
+        active_question_key = active_question_key(page, active)
 
-          :error ->
-            assign_error(socket, :unknown_prompt)
-        end
+        socket
+        |> assign(:task, page.task)
+        |> assign(:questionnaire, page.questionnaire)
+        |> assign(:questions, page.questions)
+        |> assign(:active_question_key, active_question_key)
+        |> assign(:total_tasks, page.total_tasks)
+        |> assign(:state, :task)
 
       {:error, reason} ->
         assign_error(socket, reason)
     end
   end
 
-  defp advance(socket) do
-    if socket.assigns.task.position < socket.assigns.total_tasks do
-      socket =
-        socket
-        |> load_task(socket.assigns.task.position + 1)
-        |> push_event("scroll_to_top", %{})
+  defp after_answer(socket) do
+    case DataCollection.task_page(socket.assigns.participation, socket.assigns.task.position) do
+      {:ok, %{complete?: false} = page} ->
+        {:noreply, assign_page(socket, page, page.active_question_key)}
 
-      {:noreply, socket}
-    else
-      case DataCollection.complete_participation(socket.assigns.participation) do
-        {:ok, completed} ->
-          socket = socket |> assign(:participation, completed) |> load_completed()
-
+      {:ok, %{complete?: true}} ->
+        if socket.assigns.task.position < socket.assigns.total_tasks do
           {:noreply,
-           redirect(socket, to: ~p"/participate/#{socket.assigns.context_token}/complete")}
+           socket
+           |> load_task(socket.assigns.task.position + 1)
+           |> push_event("scroll_to_top", %{})}
+        else
+          complete_and_redirect(socket)
+        end
 
-        {:error, reason} ->
-          {:noreply, assign_error(socket, reason)}
-      end
+      {:error, reason} ->
+        {:noreply, assign_error(socket, reason)}
     end
   end
+
+  defp complete_and_redirect(socket) do
+    case DataCollection.complete_participation(socket.assigns.participation) do
+      {:ok, completed} ->
+        socket = socket |> assign(:participation, completed) |> load_completed()
+
+        {:noreply, redirect(socket, to: ~p"/participate/#{socket.assigns.launch_token}/complete")}
+
+      {:error, reason} ->
+        {:noreply, assign_error(socket, reason)}
+    end
+  end
+
+  defp assign_page(socket, page, active_question_key) do
+    socket
+    |> assign(:task, page.task)
+    |> assign(:questionnaire, page.questionnaire)
+    |> assign(:questions, page.questions)
+    |> assign(:active_question_key, active_question_key)
+    |> assign(:total_tasks, page.total_tasks)
+    |> assign(:state, :task)
+  end
+
+  defp active_question_key(page, :next_unanswered), do: page.active_question_key
+
+  defp active_question_key(page, :first_answered) do
+    case Enum.find(page.questions, & &1.response) do
+      nil -> page.active_question_key
+      question -> question.key
+    end
+  end
+
+  defp question_by_key(questions, key), do: Enum.find(questions, &(&1.key == key))
+
+  defp question_state(true, _answered?), do: "active"
+  defp question_state(false, true), do: "answered"
+  defp question_state(false, false), do: "locked"
+
+  defp answer_summary(:post_a), do: "Post A"
+  defp answer_summary(:post_b), do: "Post B"
+  defp answer_summary(:equal), do: "Equal"
+  defp answer_summary(:yes), do: "Yes"
+  defp answer_summary(:no), do: "No"
+  defp answer_summary(:skip), do: "Skipped"
 
   defp load_completed(socket), do: assign(socket, :state, :completed)
 
   defp assign_error(socket, _reason), do: assign(socket, :state, :error)
 
-  defp participant_attrs(context) do
+  defp participant_attrs(launch) do
     %{
-      prolific_participant_id: Map.get(context, "prolific_participant_id"),
-      prolific_study_id: Map.get(context, "prolific_study_id"),
-      prolific_session_id: Map.get(context, "prolific_session_id")
+      prolific_participant_id: launch.prolific_participant_id,
+      prolific_study_id: launch.prolific_study_id,
+      prolific_session_id: launch.prolific_session_id
     }
   end
 

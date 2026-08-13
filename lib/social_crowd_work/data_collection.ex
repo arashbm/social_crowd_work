@@ -6,24 +6,159 @@ defmodule SocialCrowdWork.DataCollection do
   import Ecto.Query
 
   alias SocialCrowdWork.Consents
-  alias SocialCrowdWork.DataCollection.{Participation, Response}
+  alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
   alias SocialCrowdWork.Experiments.{Condition, Run, Task}
+  alias SocialCrowdWork.Questionnaires
   alias SocialCrowdWork.Repo
+
+  def create_participant_launch(%Condition{id: condition_id}, attrs) do
+    Repo.transaction(fn ->
+      current_time = now()
+
+      ParticipantLaunch
+      |> where([launch], launch.expires_at <= ^current_time)
+      |> Repo.delete_all()
+
+      lock_prolific_session!(Map.get(attrs, :prolific_session_id))
+      condition = Repo.get!(Condition, condition_id)
+
+      participation =
+        case participation_for_session(Map.get(attrs, :prolific_session_id)) do
+          %Participation{} = participation ->
+            resume_for_condition(participation, condition, attrs)
+
+          nil ->
+            validate_launch!(condition, attrs)
+            nil
+        end
+
+      {raw_token, token_hash} = ParticipantLaunch.generate_token()
+
+      launch_attrs =
+        Map.put(
+          attrs,
+          :expires_at,
+          DateTime.add(current_time, launch_ttl(launch_state(participation)), :second)
+        )
+
+      case Repo.insert(
+             ParticipantLaunch.create_changeset(
+               condition,
+               participation,
+               token_hash,
+               launch_attrs
+             )
+           ) do
+        {:ok, _launch} -> raw_token
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+  end
+
+  def resolve_participant_launch(raw_token) do
+    current_time = now()
+
+    with {:ok, token_hash} <- ParticipantLaunch.hash_token(raw_token),
+         %ParticipantLaunch{} = launch <-
+           ParticipantLaunch
+           |> where(
+             [launch],
+             launch.token_hash == ^token_hash and launch.expires_at > ^current_time
+           )
+           |> preload([:condition, :participation])
+           |> Repo.one() do
+      {:ok, %{launch: launch, condition: launch.condition, participation: launch.participation}}
+    else
+      _other -> {:error, :invalid_launch}
+    end
+  end
+
+  def consent_and_assign_run(raw_token, consent_key) when is_binary(raw_token) do
+    with {:ok, token_hash} <- ParticipantLaunch.hash_token(raw_token) do
+      Repo.transaction(fn ->
+        launch = lock_valid_launch!(token_hash)
+        lock_prolific_session!(launch.prolific_session_id)
+        condition = Repo.get!(Condition, launch.condition_id)
+        attrs = launch_identity(launch)
+
+        participation = consent_and_assign_run!(condition, attrs, consent_key)
+
+        launch
+        |> Ecto.Changeset.change(
+          participation_id: participation.id,
+          expires_at: DateTime.add(now(), launch_ttl(:post_consent), :second)
+        )
+        |> Repo.update!()
+
+        participation
+      end)
+    else
+      :error -> {:error, :invalid_launch}
+    end
+  end
+
+  def consent_and_assign_run(_raw_token, _consent_key), do: {:error, :invalid_launch}
 
   def consent_and_assign_run(%Condition{id: condition_id}, attrs, consent_key) do
     Repo.transaction(fn ->
       lock_prolific_session!(Map.get(attrs, :prolific_session_id))
       condition = Repo.get!(Condition, condition_id)
 
-      case participation_for_session(Map.get(attrs, :prolific_session_id)) do
-        %Participation{} = participation ->
-          resume_for_condition(participation, condition, attrs)
-
-        nil ->
-          validate_new_participation!(condition, attrs, consent_key)
-          assign_available_run(condition, attrs, consent_key)
-      end
+      consent_and_assign_run!(condition, attrs, consent_key)
     end)
+  end
+
+  def decline_participant_launch(raw_token) do
+    with {:ok, token_hash} <- ParticipantLaunch.hash_token(raw_token) do
+      case Repo.transaction(fn ->
+             launch = lock_valid_launch!(token_hash)
+
+             if launch.participation_id do
+               Repo.rollback(:already_consented)
+             else
+               Repo.delete!(launch)
+             end
+           end) do
+        {:ok, launch} -> {:ok, launch}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :error -> {:error, :invalid_launch}
+    end
+  end
+
+  def complete_participant_launch(raw_token) do
+    with {:ok, token_hash} <- ParticipantLaunch.hash_token(raw_token) do
+      Repo.transaction(fn ->
+        launch = lock_valid_launch!(token_hash)
+        participation = exact_launch_participation!(launch)
+
+        if participation.status != :completed do
+          Repo.rollback(:participation_not_completed)
+        end
+
+        condition = Repo.get!(Condition, launch.condition_id)
+
+        ParticipantLaunch
+        |> where([stored], stored.participation_id == ^participation.id)
+        |> Repo.delete_all()
+
+        %{condition: condition, completion_code: condition.prolific_completion_code}
+      end)
+    else
+      :error -> {:error, :invalid_launch}
+    end
+  end
+
+  defp consent_and_assign_run!(condition, attrs, consent_key) do
+    case participation_for_session(Map.get(attrs, :prolific_session_id)) do
+      %Participation{} = participation ->
+        resume_for_condition(participation, condition, attrs)
+
+      nil ->
+        validate_new_participation!(condition, attrs, consent_key)
+        assign_available_run(condition, attrs, consent_key)
+    end
   end
 
   def resume_participation(%Condition{} = condition, attrs) do
@@ -36,7 +171,7 @@ defmodule SocialCrowdWork.DataCollection do
     end
   end
 
-  def record_response(%Participation{id: participation_id}, task_id, choice) do
+  def record_response(%Participation{id: participation_id}, task_id, question_key, choice) do
     Repo.transaction(fn ->
       participation =
         Participation
@@ -53,15 +188,27 @@ defmodule SocialCrowdWork.DataCollection do
           Repo.rollback(:task_not_in_run)
 
         {task, task_type} ->
+          question = question_for_task!(task, question_key)
+
+          if choice not in question.choices() do
+            Repo.rollback(:choice_not_allowed)
+          end
+
           attrs = %{
             participation_id: participation.id,
             task_id: task.id,
             run_id: participation.run_id,
+            question_key: question.key(),
             choice: choice,
             answered_at: now()
           }
 
-          response = Repo.get_by(Response, participation_id: participation.id, task_id: task.id)
+          response =
+            Repo.get_by(Response,
+              participation_id: participation.id,
+              task_id: task.id,
+              question_key: question.key()
+            )
 
           case persist_response(response, attrs, task_type) do
             {:ok, response} ->
@@ -78,34 +225,77 @@ defmodule SocialCrowdWork.DataCollection do
   def task_page(%Participation{} = participation, position) when is_integer(position) do
     task = Repo.get_by(Task, run_id: participation.run_id, position: position)
 
-    if task do
-      response = Repo.get_by(Response, participation_id: participation.id, task_id: task.id)
+    case task do
+      nil ->
+        {:error, :not_found}
 
-      total_tasks =
-        Task
-        |> where([stored_task], stored_task.run_id == ^participation.run_id)
-        |> Repo.aggregate(:count)
+      task ->
+        with {:ok, questionnaire} <- Questionnaires.fetch(task.questionnaire_key) do
+          total_tasks =
+            Task
+            |> where([stored_task], stored_task.run_id == ^participation.run_id)
+            |> Repo.aggregate(:count)
 
-      {:ok, %{task: task, response: response, total_tasks: total_tasks}}
-    else
-      {:error, :not_found}
+          responses =
+            Response
+            |> where(
+              [response],
+              response.participation_id == ^participation.id and response.task_id == ^task.id
+            )
+            |> Repo.all()
+
+          responses_by_key = Map.new(responses, &{&1.question_key, &1})
+
+          questions =
+            questionnaire.questions()
+            |> Enum.with_index(1)
+            |> Enum.map(fn {module, number} ->
+              %{
+                number: number,
+                key: module.key(),
+                module: module,
+                response: Map.get(responses_by_key, module.key())
+              }
+            end)
+
+          expected_keys = MapSet.new(questions, & &1.key)
+          actual_keys = MapSet.new(responses, & &1.question_key)
+
+          {:ok,
+           %{
+             task: task,
+             questionnaire: questionnaire,
+             questions: questions,
+             active_question_key: first_unanswered_key(questions),
+             complete?: expected_keys == actual_keys,
+             total_tasks: total_tasks
+           }}
+        else
+          :error -> {:error, :unknown_questionnaire}
+        end
     end
   end
 
   def task_page(%Participation{}, _position), do: {:error, :not_found}
 
-  def next_unanswered_task(%Participation{} = participation) do
-    answered_task_ids =
-      from response in Response,
-        where: response.participation_id == ^participation.id,
-        select: response.task_id
+  def next_incomplete_task(%Participation{} = participation) do
+    tasks =
+      Task
+      |> where([task], task.run_id == ^participation.run_id)
+      |> order_by([task], asc: task.position)
+      |> Repo.all()
 
-    Task
-    |> where([task], task.run_id == ^participation.run_id)
-    |> where([task], task.id not in subquery(answered_task_ids))
-    |> order_by([task], asc: task.position)
-    |> limit(1)
-    |> Repo.one()
+    response_identities = response_identities(participation)
+
+    Enum.find(tasks, fn task ->
+      case expected_question_keys(task) do
+        {:ok, expected_keys} ->
+          Map.get(response_identities, task.id, MapSet.new()) != expected_keys
+
+        :error ->
+          true
+      end
+    end)
   end
 
   def complete_participation(%Participation{id: participation_id}) do
@@ -207,6 +397,69 @@ defmodule SocialCrowdWork.DataCollection do
     end
   end
 
+  defp validate_launch!(condition, attrs) do
+    cond do
+      condition.status != :active -> Repo.rollback(:condition_inactive)
+      prolific_study_mismatch?(condition, attrs) -> Repo.rollback(:prolific_study_mismatch)
+      true -> :ok
+    end
+  end
+
+  defp lock_valid_launch!(token_hash) do
+    launch =
+      ParticipantLaunch
+      |> where([stored], stored.token_hash == ^token_hash)
+      |> lock("FOR UPDATE")
+      |> Repo.one()
+
+    if is_nil(launch) or ParticipantLaunch.expired?(launch, now()) do
+      Repo.rollback(:invalid_launch)
+    end
+
+    launch
+  end
+
+  defp exact_launch_participation!(%ParticipantLaunch{participation_id: nil}) do
+    Repo.rollback(:invalid_launch)
+  end
+
+  defp exact_launch_participation!(launch) do
+    participation =
+      from(participation in Participation,
+        join: run in Run,
+        on: run.id == participation.run_id,
+        where:
+          participation.id == ^launch.participation_id and
+            run.condition_id == ^launch.condition_id and
+            participation.prolific_participant_id == ^launch.prolific_participant_id and
+            participation.prolific_study_id == ^launch.prolific_study_id and
+            participation.prolific_session_id == ^launch.prolific_session_id,
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
+
+    participation || Repo.rollback(:invalid_launch)
+  end
+
+  defp launch_identity(launch) do
+    %{
+      prolific_participant_id: launch.prolific_participant_id,
+      prolific_study_id: launch.prolific_study_id,
+      prolific_session_id: launch.prolific_session_id
+    }
+  end
+
+  defp launch_state(nil), do: :pre_consent
+  defp launch_state(%Participation{}), do: :post_consent
+
+  defp launch_ttl(:pre_consent) do
+    Application.fetch_env!(:social_crowd_work, :participant_launch_pre_consent_ttl_seconds)
+  end
+
+  defp launch_ttl(:post_consent) do
+    Application.fetch_env!(:social_crowd_work, :participant_launch_post_consent_ttl_seconds)
+  end
+
   defp lock_prolific_session!(session_id) when is_binary(session_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [session_id])
   end
@@ -223,6 +476,19 @@ defmodule SocialCrowdWork.DataCollection do
       select: {task, condition.task_type}
     )
     |> Repo.one()
+  end
+
+  defp question_for_task!(task, question_key) do
+    questionnaire =
+      case Questionnaires.fetch(task.questionnaire_key) do
+        {:ok, questionnaire} -> questionnaire
+        :error -> Repo.rollback(:unknown_questionnaire)
+      end
+
+    case Enum.find(questionnaire.questions(), &(&1.key() == question_key)) do
+      nil -> Repo.rollback(:question_not_in_questionnaire)
+      question -> question
+    end
   end
 
   defp mark_in_progress(%Participation{status: :assigned} = participation) do
@@ -250,27 +516,55 @@ defmodule SocialCrowdWork.DataCollection do
   end
 
   defp complete_if_answered(participation) do
-    task_count =
+    tasks =
       Task
       |> where([task], task.run_id == ^participation.run_id)
-      |> Repo.aggregate(:count)
+      |> Repo.all()
 
-    response_count =
-      from(response in Response,
-        join: task in Task,
-        on: task.id == response.task_id,
-        where:
-          response.participation_id == ^participation.id and
-            task.run_id == ^participation.run_id
-      )
-      |> Repo.aggregate(:count)
+    actual_identities = response_identities(participation)
 
-    if task_count > 0 and response_count == task_count do
+    expected_identities =
+      Enum.reduce(tasks, %{}, fn task, identities ->
+        case expected_question_keys(task) do
+          {:ok, question_keys} -> Map.put(identities, task.id, question_keys)
+          :error -> Repo.rollback(:unknown_questionnaire)
+        end
+      end)
+
+    if tasks != [] and actual_identities == expected_identities do
       participation
       |> Participation.changeset(%{status: :completed, completed_at: now()})
       |> Repo.update!()
     else
       Repo.rollback(:tasks_remaining)
+    end
+  end
+
+  defp expected_question_keys(task) do
+    case Questionnaires.fetch(task.questionnaire_key) do
+      {:ok, questionnaire} -> {:ok, MapSet.new(questionnaire.questions(), & &1.key())}
+      :error -> :error
+    end
+  end
+
+  defp response_identities(participation) do
+    from(response in Response,
+      join: task in Task,
+      on: task.id == response.task_id,
+      where:
+        response.participation_id == ^participation.id and
+          task.run_id == ^participation.run_id,
+      select: {response.task_id, response.question_key}
+    )
+    |> Repo.all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {task_id, question_keys} -> {task_id, MapSet.new(question_keys)} end)
+  end
+
+  defp first_unanswered_key(questions) do
+    case Enum.find(questions, &is_nil(&1.response)) do
+      nil -> nil
+      question -> question.key
     end
   end
 

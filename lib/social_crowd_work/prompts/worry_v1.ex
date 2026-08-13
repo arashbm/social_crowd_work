@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.Prompts.WorryV1 do
   def key, do: "worry.v1"
 
   @impl true
+  def title, do: "Which post shows more worry about something bad happening?"
+
+  @impl true
   def task_type, do: :comparison
 
   @impl true

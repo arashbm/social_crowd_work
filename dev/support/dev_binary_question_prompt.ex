@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.DevBinaryQuestionPrompt do
   def key, do: "dev-expresses-frustration.v1"
 
   @impl true
+  def title, do: "Does this post express frustration?"
+
+  @impl true
   def task_type, do: :binary_question
 
   @impl true

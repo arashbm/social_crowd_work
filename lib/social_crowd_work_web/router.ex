@@ -33,9 +33,9 @@ defmodule SocialCrowdWorkWeb.Router do
     get "/enter/:entry_token", ParticipationController, :start
     get "/participate/error", ParticipationController, :error
     get "/participate/declined", ParticipationController, :declined
-    get "/participate/:context_token/decline", ParticipationController, :decline
-    get "/participate/:context_token/complete", ParticipationController, :complete
-    live "/participate/:context_token", ParticipantLive
+    delete "/participate/:launch_token/decline", ParticipationController, :decline
+    get "/participate/:launch_token/complete", ParticipationController, :complete
+    live "/participate/:launch_token", ParticipantLive
   end
 
   # Other scopes may use custom stacks.

@@ -2,6 +2,7 @@ defmodule SocialCrowdWork.PromptsTest do
   use ExUnit.Case, async: true
 
   alias SocialCrowdWork.Prompts
+  alias SocialCrowdWork.Questionnaires
 
   @production_prompts [
     {"worry.v1", SocialCrowdWork.Prompts.WorryV1},
@@ -35,5 +36,30 @@ defmodule SocialCrowdWork.PromptsTest do
     assert prompt.task_type() == :comparison
     assert prompt.choices() == [:post_a, :post_b, :equal, :skip]
     assert %Phoenix.LiveView.Rendered{} = prompt.render(%{})
+  end
+
+  test "fetches the production questionnaire and its ordered questions" do
+    assert {:ok, SocialCrowdWork.Questionnaires.PsychosocialComparisonsV1} =
+             Questionnaires.fetch("psychosocial-comparisons.v1")
+
+    questionnaire = Questionnaires.fetch!("psychosocial-comparisons.v1")
+
+    assert questionnaire.task_type() == :comparison
+
+    assert Enum.map(questionnaire.questions(), & &1.key()) == [
+             "worry.v1",
+             "restlessness.v1",
+             "cognitive-disruption.v1"
+           ]
+  end
+
+  test "fetches configured questionnaire modules" do
+    assert {:ok, SocialCrowdWork.TestComparisonQuestionnaire} =
+             Questionnaires.fetch("test-comparison.v1")
+
+    assert {:ok, SocialCrowdWork.TestBinaryQuestionQuestionnaire} =
+             Questionnaires.fetch("test-binary-question.v1")
+
+    assert :error = Questionnaires.fetch("unknown.v1")
   end
 end

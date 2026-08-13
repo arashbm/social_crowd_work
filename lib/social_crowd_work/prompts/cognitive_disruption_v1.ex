@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.Prompts.CognitiveDisruptionV1 do
   def key, do: "cognitive-disruption.v1"
 
   @impl true
+  def title, do: "Which post shows more difficulty thinking clearly because of distress?"
+
+  @impl true
   def task_type, do: :comparison
 
   @impl true

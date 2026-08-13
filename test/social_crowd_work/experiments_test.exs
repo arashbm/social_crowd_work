@@ -54,6 +54,22 @@ defmodule SocialCrowdWork.ExperimentsTest do
   end
 
   describe "create_run_with_tasks/2" do
+    test "task changesets require a nonblank questionnaire key" do
+      attrs = %{
+        run_id: 1,
+        position: 1,
+        questionnaire_key: " ",
+        stimuli: %{
+          "post_a" => %{"text" => "First"},
+          "post_b" => %{"text" => "Second"}
+        }
+      }
+
+      changeset = Task.changeset(%Task{}, attrs, :comparison)
+
+      assert "can't be blank" in errors_on(changeset).questionnaire_key
+    end
+
     test "stores comparison posts without discarding arbitrary properties" do
       condition = condition_fixture()
       import_batch = import_batch_fixture()
@@ -71,7 +87,7 @@ defmodule SocialCrowdWork.ExperimentsTest do
         tasks: [
           %{
             position: 1,
-            prompt_key: "toxicity.v1",
+            questionnaire_key: "test-comparison.v1",
             stimuli: %{
               "post_a" => post_a,
               "post_b" => %{"text" => "Another post", "custom" => [1, 2, 3]}
@@ -104,7 +120,7 @@ defmodule SocialCrowdWork.ExperimentsTest do
         tasks: [
           %{
             position: 1,
-            prompt_key: "toxicity.v1",
+            questionnaire_key: "test-comparison.v1",
             stimuli: %{"post" => %{"text" => "Wrong role"}}
           }
         ]
@@ -131,7 +147,7 @@ defmodule SocialCrowdWork.ExperimentsTest do
           tasks: [
             %{
               position: 1,
-              prompt_key: "toxicity.v1",
+              questionnaire_key: "test-comparison.v1",
               stimuli: %{
                 "post_a" => post,
                 "post_b" => %{"text" => "Valid"}

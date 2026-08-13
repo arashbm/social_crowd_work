@@ -7,6 +7,10 @@ defmodule SocialCrowdWork.Prompts.RestlessnessV1 do
   def key, do: "restlessness.v1"
 
   @impl true
+  def title,
+    do: "Which post sounds more emotionally tense, agitated, or unable to settle down?"
+
+  @impl true
   def task_type, do: :comparison
 
   @impl true

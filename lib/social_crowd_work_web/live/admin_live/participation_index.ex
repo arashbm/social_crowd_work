@@ -5,10 +5,22 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationIndex do
 
   @impl true
   def mount(_params, _session, socket) do
+    participations =
+      socket.assigns.current_scope
+      |> AdminPanel.list_participations()
+      |> Enum.map(fn participation ->
+        %{
+          participation: participation,
+          progress: AdminPanel.participation_progress(participation)
+        }
+      end)
+
     {:ok,
      socket
      |> assign(:page_title, "Participations")
-     |> stream(:participations, AdminPanel.list_participations(socket.assigns.current_scope))}
+     |> stream(:participations, participations,
+       dom_id: fn %{participation: participation} -> "participation-#{participation.id}" end
+     )}
   end
 
   @impl true
@@ -40,27 +52,27 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationIndex do
               </td>
             </tr>
             <tr
-              :for={{id, participation} <- @streams.participations}
+              :for={{id, row} <- @streams.participations}
               id={id}
               class="transition hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <td class="px-5 py-4">
                 <.link
-                  navigate={~p"/admin/participations/#{participation.id}"}
+                  navigate={~p"/admin/participations/#{row.participation.id}"}
                   class="font-mono text-xs font-semibold text-indigo-700 hover:text-indigo-500 dark:text-indigo-300"
-                >{mask_identifier(participation.prolific_participant_id)}</.link>
+                >{mask_identifier(row.participation.prolific_participant_id)}</.link>
               </td>
               <td class="px-5 py-4">
                 <p class="font-medium text-slate-900 dark:text-white">
-                  {participation.run.condition.key}
-                </p><p class="mt-1 text-xs text-slate-500">{participation.run.external_key}</p>
+                  {row.participation.run.condition.key}
+                </p><p class="mt-1 text-xs text-slate-500">{row.participation.run.external_key}</p>
               </td>
               <td class="px-5 py-4 tabular-nums text-slate-600 dark:text-slate-300">
-                {length(participation.responses)} / {length(participation.run.tasks)}
+                {row.progress.answered} / {row.progress.expected} questions
               </td>
-              <td class="px-5 py-4"><.status_badge status={participation.status} /></td>
+              <td class="px-5 py-4"><.status_badge status={row.participation.status} /></td>
               <td class="px-5 py-4 text-xs text-slate-500">
-                {Calendar.strftime(participation.started_at, "%Y-%m-%d %H:%M")}
+                {Calendar.strftime(row.participation.started_at, "%Y-%m-%d %H:%M")}
               </td>
             </tr>
           </tbody>

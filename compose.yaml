@@ -104,7 +104,17 @@ configs:
         sendfile on;
         server_tokens off;
 
-        log_format privacy '$$remote_addr - $$request_method $$uri $$server_protocol $$status $$body_bytes_sent';
+        map $$uri $$privacy_safe_uri {
+          /participate/error $$uri;
+          /participate/declined $$uri;
+          ~^/enter/ /enter/[redacted];
+          ~^/participate/[^/]+/decline$$ /participate/[redacted]/decline;
+          ~^/participate/[^/]+/complete$$ /participate/[redacted]/complete;
+          ~^/participate/[^/]+$$ /participate/[redacted];
+          default $$uri;
+        }
+
+        log_format privacy '$$remote_addr - $$request_method $$privacy_safe_uri $$server_protocol $$status $$body_bytes_sent';
         access_log /var/log/nginx/access.log privacy;
 
         resolver 127.0.0.11 ipv6=off valid=10s;

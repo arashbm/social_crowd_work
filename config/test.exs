@@ -19,6 +19,10 @@ config :social_crowd_work,
     SocialCrowdWork.TestComparisonPrompt,
     SocialCrowdWork.TestBinaryQuestionPrompt
   ],
+  questionnaire_modules: [
+    SocialCrowdWork.TestComparisonQuestionnaire,
+    SocialCrowdWork.TestBinaryQuestionQuestionnaire
+  ],
   consent_modules: [SocialCrowdWork.TestConsent]
 
 # Disable swoosh api client as it is only required for production adapters

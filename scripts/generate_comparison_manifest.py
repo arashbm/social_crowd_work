@@ -16,9 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-PROMPT_KEYS = ("worry.v1", "restlessness.v1", "cognitive-disruption.v1")
-TASKS_PER_RUN = 120
-PAIRS_PER_RUN = TASKS_PER_RUN // len(PROMPT_KEYS)
+PAIRS_PER_RUN = 40
 
 Post = dict[str, Any]
 Pair = tuple[int, int]
@@ -59,13 +57,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description=(
             "Uniformly sample post pairs, cluster them into runs with few repeated "
             "posts, and emit an importable SocialCrowdWork manifest. Each full run "
-            f"contains {PAIRS_PER_RUN} pairs and {TASKS_PER_RUN} tasks."
+            f"contains {PAIRS_PER_RUN} pairs and {PAIRS_PER_RUN} tasks."
         )
     )
     parser.add_argument("input", type=Path, help="JSONL file containing post objects")
     parser.add_argument("output", type=Path, help="output manifest JSON file")
     parser.add_argument("--comparisons", "-m", type=positive_int, required=True)
     parser.add_argument("--condition-key", required=True)
+    parser.add_argument("--questionnaire-key", required=True)
     parser.add_argument(
         "--run-key-prefix",
         help="run key prefix; defaults to the condition key",
@@ -315,31 +314,33 @@ def build_manifest(
     batches: Sequence[Batch],
     condition_key: str,
     run_key_prefix: str,
+    questionnaire_key: str,
     seed: int,
     comparisons: int,
     rng: random.Random,
 ) -> dict[str, Any]:
     validate_key("condition key", condition_key)
     validate_key("run key prefix", run_key_prefix)
+    validate_key("questionnaire key", questionnaire_key)
 
     runs = [
-        build_run(posts, batch, run_key_prefix, index, rng)
+        build_run(posts, batch, run_key_prefix, questionnaire_key, index, rng)
         for index, batch in enumerate(batches, start=1)
     ]
 
     return {
-        "format_version": "1",
+        "format_version": "2",
         "conditions": [
             {
                 "key": condition_key,
                 "task_type": "comparison",
                 "variants": {
                     "generator": "generate_comparison_manifest.py",
-                    "generator_version": "1",
+                    "generator_version": "2",
                     "seed": seed,
                     "sampled_pairs": comparisons,
-                    "tasks_per_full_run": TASKS_PER_RUN,
-                    "prompts_per_pair": len(PROMPT_KEYS),
+                    "pairs_per_full_run": PAIRS_PER_RUN,
+                    "questionnaire_key": questionnaire_key,
                     "pair_sampling": "uniform_without_replacement",
                     "run_partitioning": "minimum_post_replication_heuristic",
                 },
@@ -360,6 +361,7 @@ def build_run(
     posts: Sequence[Post],
     batch: Batch,
     run_key_prefix: str,
+    questionnaire_key: str,
     run_number: int,
     rng: random.Random,
 ) -> dict[str, Any]:
@@ -368,25 +370,17 @@ def build_run(
     pairs = list(batch.pairs)
     rng.shuffle(pairs)
     oriented_pairs = orient_pairs(pairs, rng)
-    prompt_order = list(PROMPT_KEYS)
-    rng.shuffle(prompt_order)
-    tasks: list[dict[str, Any]] = []
-
-    for pair_index, (post_a, post_b) in enumerate(oriented_pairs):
-        rotation = pair_index % len(prompt_order)
-        prompts = prompt_order[rotation:] + prompt_order[:rotation]
-
-        for prompt_key in prompts:
-            tasks.append(
-                {
-                    "position": len(tasks) + 1,
-                    "prompt_key": prompt_key,
-                    "stimuli": {
-                        "post_a": posts[post_a],
-                        "post_b": posts[post_b],
-                    },
-                }
-            )
+    tasks = [
+        {
+            "position": position,
+            "questionnaire_key": questionnaire_key,
+            "stimuli": {
+                "post_a": posts[post_a],
+                "post_b": posts[post_b],
+            },
+        }
+        for position, (post_a, post_b) in enumerate(oriented_pairs, start=1)
+    ]
 
     return {"key": run_key, "tasks": tasks}
 
@@ -449,8 +443,8 @@ def print_summary(
 ) -> None:
     unique_counts = [batch.unique_post_count for batch in batches]
     print(
-        f"Generated {comparisons} unique pairs as {comparisons * len(PROMPT_KEYS)} "
-        f"tasks across {len(batches)} runs from {len(posts)} source posts.",
+        f"Generated {comparisons} unique pairs as {comparisons} tasks across "
+        f"{len(batches)} runs from {len(posts)} source posts.",
         file=sys.stderr,
     )
     print(f"Seed: {seed}", file=sys.stderr)
@@ -477,6 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             batches,
             args.condition_key,
             run_key_prefix,
+            args.questionnaire_key,
             seed,
             args.comparisons,
             sampling_rng,

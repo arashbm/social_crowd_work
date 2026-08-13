@@ -4,7 +4,7 @@ Experiment designs are imported as versioned JSON documents. Imports are validat
 
 ```json
 {
-  "format_version": "1",
+  "format_version": "2",
   "conditions": [
     {
       "key": "comparison-en-pilot",
@@ -19,7 +19,7 @@ Experiment designs are imported as versioned JSON documents. Imports are validat
           "tasks": [
             {
               "position": 1,
-              "prompt_key": "a-versioned-prompt-key.v1",
+              "questionnaire_key": "psychosocial-comparisons.v1",
               "stimuli": {
                 "post_a": {
                   "text": "First post"
@@ -39,9 +39,9 @@ Experiment designs are imported as versioned JSON documents. Imports are validat
 
 `task_type` is either `comparison` or `binary_question`. Comparison stimuli contain exactly `post_a` and `post_b`; binary-question stimuli contain exactly `post`. Every post requires a non-empty string `text`, while all other post properties are preserved without interpretation.
 
-Condition keys are global. Reusing a condition key requires an exact match of its task type and variants. Run keys are unique within a condition, including across separate import files. Task positions are positive integers and unique within a run.
+Condition keys are global. Reusing a condition key requires an exact match of its task type and variants. Run keys are unique within a condition, including across separate import files. Task positions must be contiguous from `1` within each run.
 
-Prompt keys must exist in `SocialCrowdWork.Prompts` and be compatible with the condition's task type.
+Questionnaire keys must exist in `SocialCrowdWork.Questionnaires` and be compatible with the condition's task type. A task stores its stimuli once; the questionnaire defines the ordered questions shown for those stimuli. For example, `psychosocial-comparisons.v1` asks the production worry, restlessness, and cognitive-disruption questions on one comparison task instead of representing that shared stimulus pair as three adjacent tasks.
 
 The reusable API accepts file contents so both CLI and future web uploads use the same code:
 

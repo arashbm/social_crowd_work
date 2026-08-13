@@ -38,3 +38,5 @@ npm-debug.log
 # Python utility artifacts.
 __pycache__/
 *.py[cod]
+
+*.json

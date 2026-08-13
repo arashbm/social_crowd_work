@@ -1,16 +1,15 @@
 defmodule SocialCrowdWork.Imports.Manifest do
   @moduledoc false
 
-  alias SocialCrowdWork.DataCollection.Response
   alias SocialCrowdWork.Experiments.Task
   alias SocialCrowdWork.Imports.ImportError
-  alias SocialCrowdWork.Prompts
+  alias SocialCrowdWork.Questionnaires
 
-  @format_version "1"
+  @format_version "2"
   @top_level_keys ["format_version", "conditions"]
   @condition_keys ["key", "task_type", "variants", "runs"]
   @run_keys ["key", "tasks"]
-  @task_keys ["position", "prompt_key", "stimuli"]
+  @task_keys ["position", "questionnaire_key", "stimuli"]
 
   def validate(contents) when is_binary(contents) do
     case Jason.decode(contents) do
@@ -103,6 +102,7 @@ defmodule SocialCrowdWork.Imports.Manifest do
     {tasks, errors} = required_non_empty_list(run, "tasks", "#{path}.tasks", errors)
     {normalized_tasks, errors} = validate_tasks(tasks, task_type, path, errors)
     errors = duplicate_errors(normalized_tasks, :position, "#{path}.tasks", errors)
+    errors = contiguous_position_errors(tasks, "#{path}.tasks", errors)
 
     value = if key && tasks, do: %{external_key: key, tasks: normalized_tasks}
     {value, errors}
@@ -129,14 +129,25 @@ defmodule SocialCrowdWork.Imports.Manifest do
   defp validate_task(task, task_type, path, errors) when is_map(task) do
     errors = unknown_key_errors(task, @task_keys, path) ++ errors
     {position, errors} = positive_integer(task, "position", "#{path}.position", errors)
-    {prompt_key, errors} = required_string(task, "prompt_key", "#{path}.prompt_key", errors)
+
+    {questionnaire_key, errors} =
+      required_string(task, "questionnaire_key", "#{path}.questionnaire_key", errors)
+
     {stimuli, errors} = required_map(task, "stimuli", "#{path}.stimuli", errors)
-    errors = validate_prompt(prompt_key, task_type, "#{path}.prompt_key", errors)
+
+    errors =
+      validate_questionnaire(
+        questionnaire_key,
+        task_type,
+        "#{path}.questionnaire_key",
+        errors
+      )
+
     errors = validate_stimuli(stimuli, task_type, "#{path}.stimuli", errors)
 
     value =
-      if position && prompt_key && stimuli do
-        %{position: position, prompt_key: prompt_key, stimuli: stimuli}
+      if position && questionnaire_key && stimuli do
+        %{position: position, questionnaire_key: questionnaire_key, stimuli: stimuli}
       end
 
     {value, errors}
@@ -146,23 +157,18 @@ defmodule SocialCrowdWork.Imports.Manifest do
     {nil, [error(path, "must be an object") | errors]}
   end
 
-  defp validate_prompt(nil, _task_type, _path, errors), do: errors
+  defp validate_questionnaire(nil, _task_type, _path, errors), do: errors
 
-  defp validate_prompt(prompt_key, task_type, path, errors) do
-    case Prompts.fetch(prompt_key) do
+  defp validate_questionnaire(questionnaire_key, task_type, path, errors) do
+    case Questionnaires.fetch(questionnaire_key) do
       :error ->
-        [error(path, "is not a known prompt") | errors]
+        [error(path, "is not a known questionnaire") | errors]
 
-      {:ok, prompt} ->
-        cond do
-          prompt.task_type() != task_type ->
-            [error(path, "is not compatible with #{task_type}") | errors]
-
-          MapSet.new(prompt.choices()) != MapSet.new(Response.choices_for(task_type)) ->
-            [error(path, "has choices inconsistent with #{task_type}") | errors]
-
-          true ->
-            errors
+      {:ok, questionnaire} ->
+        if questionnaire.task_type() == task_type do
+          errors
+        else
+          [error(path, "is not compatible with #{task_type}") | errors]
         end
     end
   end
@@ -257,6 +263,37 @@ defmodule SocialCrowdWork.Imports.Manifest do
       end
     end)
     |> elem(1)
+  end
+
+  defp contiguous_position_errors(items, path, errors) do
+    indexed_positions =
+      items
+      |> Enum.with_index()
+      |> Enum.flat_map(fn
+        {%{"position" => position}, index} when is_integer(position) and position > 0 ->
+          [{position, index}]
+
+        _item ->
+          []
+      end)
+
+    positions = Enum.map(indexed_positions, &elem(&1, 0))
+
+    if length(indexed_positions) == length(items) and
+         length(positions) == MapSet.size(MapSet.new(positions)) do
+      indexed_positions
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.with_index(1)
+      |> Enum.reduce(errors, fn {{position, source_index}, expected_position}, errors ->
+        if position == expected_position do
+          errors
+        else
+          [error("#{path}[#{source_index}].position", "must be #{expected_position}") | errors]
+        end
+      end)
+    else
+      errors
+    end
   end
 
   defp error(path, message), do: %ImportError{path: path, message: message}

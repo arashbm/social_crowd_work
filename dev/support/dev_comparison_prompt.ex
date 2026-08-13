@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.DevComparisonPrompt do
   def key, do: "dev-negative-tone.v1"
 
   @impl true
+  def title, do: "Which post has a more negative tone?"
+
+  @impl true
   def task_type, do: :comparison
 
   @impl true

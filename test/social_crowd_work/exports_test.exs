@@ -2,11 +2,13 @@ defmodule SocialCrowdWork.ExportsTest do
   use SocialCrowdWork.DataCase, async: true
 
   alias SocialCrowdWork.DataCollection
+  alias SocialCrowdWork.DataCollection.Response
   alias SocialCrowdWork.Exports
+  alias SocialCrowdWork.Repo
 
   import SocialCrowdWork.Fixtures
 
-  test "exports every assigned task and distinguishes skip from no response" do
+  test "exports every expected task question and preserves multiple responses" do
     condition = condition_fixture()
 
     first_task =
@@ -20,22 +22,29 @@ defmodule SocialCrowdWork.ExportsTest do
         }
       )
 
-    run = run_fixture(condition, %{tasks: [first_task, comparison_task(2)]})
+    first_task = %{first_task | questionnaire_key: "psychosocial-comparisons.v1"}
+    run = run_fixture(condition, %{tasks: [first_task]})
     attrs = participation_attrs(condition)
 
     assert {:ok, participation} =
              DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
 
-    task = Enum.find(run.tasks, &(&1.position == 1))
-    assert {:ok, _response} = DataCollection.record_response(participation, task.id, :skip)
+    [task] = run.tasks
+    insert_response(participation, task, "worry.v1", :skip)
+    insert_response(participation, task, "restlessness.v1", :post_a)
 
     assert {:ok, lines} = collect_jsonl(condition_key: condition.key)
-    assert length(lines) == 2
+    assert length(lines) == 3
 
-    [answered, unanswered] = Enum.map(lines, &Jason.decode!/1)
+    [answered, second_answered, unanswered] = Enum.map(lines, &Jason.decode!/1)
     assert answered["task"]["position"] == 1
+    assert answered["task"]["questionnaire_key"] == "psychosocial-comparisons.v1"
+    assert answered["questionnaire"] == %{"key" => "psychosocial-comparisons.v1"}
+    assert answered["question"] == %{"key" => "worry.v1", "number" => 1}
     assert answered["response"]["choice"] == "skip"
-    assert unanswered["task"]["position"] == 2
+    assert second_answered["question"] == %{"key" => "restlessness.v1", "number" => 2}
+    assert second_answered["response"]["choice"] == "post_a"
+    assert unanswered["question"] == %{"key" => "cognitive-disruption.v1", "number" => 3}
     assert unanswered["response"] == nil
 
     assert answered["task"]["stimuli"]["post_a"]["author"] == %{
@@ -60,13 +69,16 @@ defmodule SocialCrowdWork.ExportsTest do
              DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
 
     [task] = run.tasks
-    assert {:ok, _response} = DataCollection.record_response(participation, task.id, :yes)
-    assert {:ok, _completed} = DataCollection.complete_participation(participation)
+    response = insert_response(participation, task, "test-binary-question.v1", :yes)
+
+    participation
+    |> Ecto.Changeset.change(%{status: :completed, completed_at: response.answered_at})
+    |> Repo.update!()
 
     assert {:ok, [line]} = collect_jsonl(condition_key: condition.key)
     record = Jason.decode!(line)
 
-    assert record["schema_version"] == "1"
+    assert record["schema_version"] == "2"
     assert record["condition"]["task_type"] == "binary_question"
     assert record["participation"]["status"] == "completed"
     assert record["participation"]["completed_at"]
@@ -107,5 +119,23 @@ defmodule SocialCrowdWork.ExportsTest do
       participation_attrs(condition),
       "test-consent.v1"
     )
+  end
+
+  defp insert_response(participation, task, question_key, choice) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    %Response{}
+    |> Response.changeset(
+      %{
+        participation_id: participation.id,
+        task_id: task.id,
+        run_id: participation.run_id,
+        question_key: question_key,
+        choice: choice,
+        answered_at: now
+      },
+      participation.run.condition.task_type
+    )
+    |> Repo.insert!()
   end
 end

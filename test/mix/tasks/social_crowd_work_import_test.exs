@@ -16,7 +16,7 @@ defmodule Mix.Tasks.SocialCrowdWork.ImportTest do
 
     contents =
       Jason.encode!(%{
-        "format_version" => "1",
+        "format_version" => "2",
         "conditions" => [
           %{
             "key" => "cli-test-condition",
@@ -28,7 +28,7 @@ defmodule Mix.Tasks.SocialCrowdWork.ImportTest do
                 "tasks" => [
                   %{
                     "position" => 1,
-                    "prompt_key" => "test-comparison.v1",
+                    "questionnaire_key" => "test-comparison.v1",
                     "stimuli" => %{
                       "post_a" => %{"text" => "First"},
                       "post_b" => %{"text" => "Second"}

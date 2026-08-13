@@ -64,7 +64,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
     contents =
       Jason.encode!(%{
-        "format_version" => "1",
+        "format_version" => "2",
         "conditions" => [
           %{
             "key" => key,
@@ -76,7 +76,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
                 "tasks" => [
                   %{
                     "position" => 1,
-                    "prompt_key" => "test-comparison.v1",
+                    "questionnaire_key" => "test-comparison.v1",
                     "stimuli" => %{
                       "post_a" => %{"text" => "First"},
                       "post_b" => %{"text" => "Second"}
@@ -159,11 +159,24 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert {:ok, participation} =
              DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
 
-    assert {:ok, _response} =
-             DataCollection.record_response(participation, hd(run.tasks).id, :skip)
+    insert_response(participation, hd(run.tasks), "test-comparison.v1", :skip)
 
     {:ok, definitions, _html} = live(conn, ~p"/admin/definitions")
     assert has_element?(definitions, "[id='prompt-test-comparison.v1']")
+    assert has_element?(definitions, "[id='questionnaire-test-comparison.v1']")
+
+    assert has_element?(
+             definitions,
+             "[id='questionnaire-psychosocial-comparisons.v1-question-1']",
+             "worry.v1"
+           )
+
+    assert has_element?(
+             definitions,
+             "[id='questionnaire-psychosocial-comparisons.v1-question-3']",
+             "cognitive-disruption.v1"
+           )
+
     assert has_element?(definitions, "[id='consent-test-consent.v1']")
 
     assert has_element?(
@@ -206,7 +219,10 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     conn = get(conn, ~p"/admin/exports/download?#{%{condition: condition.key}}")
     body = response(conn, 200)
     assert get_resp_header(conn, "content-type") |> hd() =~ "application/x-ndjson"
-    assert Jason.decode!(String.trim(body))["condition"]["key"] == condition.key
+    export = Jason.decode!(String.trim(body))
+    assert export["schema_version"] == "2"
+    assert export["condition"]["key"] == condition.key
+    assert export["question"] == %{"key" => "test-comparison.v1", "number" => 1}
     assert Repo.get_by!(AuditEvent, action: "responses_exported")
   end
 
@@ -217,21 +233,60 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
     assert has_element?(view, "#run-tasks")
     assert has_element?(view, "#run-tasks", "test-comparison.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "test-comparison.v1")
     refute has_element?(view, "#run-tasks form")
     assert Repo.aggregate(Run, :count) == 1
   end
 
   test "response data remains immutable from admin pages", %{conn: conn} do
     condition = condition_fixture()
-    run_fixture(condition)
+
+    run =
+      run_fixture(condition, %{
+        tasks: [
+          %{
+            position: 1,
+            questionnaire_key: "psychosocial-comparisons.v1",
+            stimuli: %{
+              "post_a" => %{"text" => "First post"},
+              "post_b" => %{"text" => "Second post"}
+            }
+          }
+        ]
+      })
+
     attrs = participation_attrs(condition)
 
     assert {:ok, participation} =
              DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
 
+    insert_response(participation, hd(run.tasks), "worry.v1", :post_a)
+
+    {:ok, index, _html} = live(conn, ~p"/admin/participations")
+    assert has_element?(index, "#participation-#{participation.id}", "1 / 3 questions")
+
     {:ok, view, _html} = live(conn, ~p"/admin/participations/#{participation.id}")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "worry.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-2", "restlessness.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-3", "cognitive-disruption.v1")
     refute has_element?(view, "#participation-responses form")
-    assert Repo.aggregate(Response, :count) == 0
+    assert Repo.aggregate(Response, :count) == 1
     assert Repo.aggregate(Participation, :count) == 1
+  end
+
+  defp insert_response(participation, task, question_key, choice) do
+    %Response{}
+    |> Response.changeset(
+      %{
+        participation_id: participation.id,
+        task_id: task.id,
+        run_id: participation.run_id,
+        question_key: question_key,
+        choice: choice,
+        answered_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      },
+      participation.run.condition.task_type
+    )
+    |> Repo.insert!()
   end
 end

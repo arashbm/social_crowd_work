@@ -7,6 +7,9 @@ defmodule SocialCrowdWork.TestBinaryQuestionPrompt do
   def key, do: "test-binary-question.v1"
 
   @impl true
+  def title, do: "Does the test post match the test criterion?"
+
+  @impl true
   def task_type, do: :binary_question
 
   @impl true

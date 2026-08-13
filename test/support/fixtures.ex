@@ -24,7 +24,7 @@ defmodule SocialCrowdWork.Fixtures do
     defaults = %{
       original_filename: "batch-#{unique}.json",
       source_sha256: sha256(unique),
-      format_version: "1"
+      format_version: "2"
     }
 
     {:ok, import_batch} = Experiments.create_import_batch(Map.merge(defaults, attrs))
@@ -60,7 +60,7 @@ defmodule SocialCrowdWork.Fixtures do
   def comparison_task(position \\ 1) do
     %{
       position: position,
-      prompt_key: "test-comparison.v1",
+      questionnaire_key: "test-comparison.v1",
       stimuli: %{
         "post_a" => %{"text" => "First post"},
         "post_b" => %{"text" => "Second post"}
@@ -71,7 +71,7 @@ defmodule SocialCrowdWork.Fixtures do
   def binary_question_task(position \\ 1) do
     %{
       position: position,
-      prompt_key: "test-binary-question.v1",
+      questionnaire_key: "test-binary-question.v1",
       stimuli: %{"post" => %{"text" => "The post"}}
     }
   end

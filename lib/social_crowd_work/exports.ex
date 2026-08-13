@@ -10,9 +10,10 @@ defmodule SocialCrowdWork.Exports do
 
   alias SocialCrowdWork.DataCollection.{Participation, Response}
   alias SocialCrowdWork.Experiments.{Condition, ImportBatch, Run, Task}
+  alias SocialCrowdWork.Questionnaires
   alias SocialCrowdWork.Repo
 
-  @schema_version "1"
+  @schema_version "2"
 
   def reduce_jsonl(initial_accumulator, reducer, opts \\ []) when is_function(reducer, 2) do
     query = export_query(opts)
@@ -21,8 +22,11 @@ defmodule SocialCrowdWork.Exports do
       fn ->
         query
         |> Repo.stream(max_rows: 500)
-        |> Enum.reduce(initial_accumulator, fn row, accumulator ->
-          reducer.(encode_row(row), accumulator)
+        |> Stream.chunk_by(fn {_, _, _, task, participation, _} ->
+          {participation.id, task.id}
+        end)
+        |> Enum.reduce(initial_accumulator, fn rows, accumulator ->
+          reduce_task_rows(rows, accumulator, reducer)
         end)
       end,
       timeout: :infinity
@@ -43,7 +47,13 @@ defmodule SocialCrowdWork.Exports do
       on:
         response.participation_id == participation.id and
           response.task_id == task.id,
-      order_by: [asc: condition.key, asc: run.external_key, asc: task.position],
+      order_by: [
+        asc: condition.key,
+        asc: run.external_key,
+        asc: participation.id,
+        asc: task.position,
+        asc: response.question_key
+      ],
       select: {condition, import_batch, run, task, participation, response}
     )
     |> maybe_filter_condition(Keyword.get(opts, :condition_key))
@@ -55,7 +65,29 @@ defmodule SocialCrowdWork.Exports do
     where(query, [participation, run, condition], condition.key == ^condition_key)
   end
 
-  defp encode_row({condition, import_batch, run, task, participation, response}) do
+  defp reduce_task_rows(rows, accumulator, reducer) do
+    [{condition, import_batch, run, task, participation, _} | _] = rows
+
+    responses =
+      rows
+      |> Enum.map(&elem(&1, 5))
+      |> Enum.reject(&is_nil/1)
+      |> Map.new(&{&1.question_key, &1})
+
+    questionnaire = Questionnaires.fetch!(task.questionnaire_key)
+
+    questionnaire.questions()
+    |> Enum.with_index(1)
+    |> Enum.reduce(accumulator, fn {question, number}, acc ->
+      row = {condition, import_batch, run, task, participation, question, number}
+      reducer.(encode_row(row, Map.get(responses, question.key())), acc)
+    end)
+  end
+
+  defp encode_row(
+         {condition, import_batch, run, task, participation, question, question_number},
+         response
+       ) do
     %{
       schema_version: @schema_version,
       condition: %{
@@ -78,9 +110,11 @@ defmodule SocialCrowdWork.Exports do
       task: %{
         id: task.id,
         position: task.position,
-        prompt_key: task.prompt_key,
+        questionnaire_key: task.questionnaire_key,
         stimuli: task.stimuli
       },
+      questionnaire: %{key: task.questionnaire_key},
+      question: %{key: question.key(), number: question_number},
       participation: %{
         id: participation.id,
         prolific_participant_id: participation.prolific_participant_id,
