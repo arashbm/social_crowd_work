@@ -8,6 +8,7 @@ defmodule SocialCrowdWork.DataCollection do
   alias SocialCrowdWork.Consents
   alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
   alias SocialCrowdWork.Experiments.{Condition, Run, Task}
+  alias SocialCrowdWork.ParticipantEvents
   alias SocialCrowdWork.Questionnaires
   alias SocialCrowdWork.Repo
 
@@ -211,7 +212,17 @@ defmodule SocialCrowdWork.DataCollection do
             )
 
           case persist_response(response, attrs, task_type) do
-            {:ok, response} ->
+            {:ok, response, previous_choice} ->
+              if previous_choice != choice do
+                ParticipantEvents.insert_answer_event!(
+                  participation,
+                  task,
+                  question.key(),
+                  previous_choice,
+                  choice
+                )
+              end
+
               mark_in_progress(participation)
               response
 
@@ -500,19 +511,23 @@ defmodule SocialCrowdWork.DataCollection do
   defp mark_in_progress(_participation), do: :ok
 
   defp persist_response(nil, attrs, task_type) do
-    %Response{}
-    |> Response.changeset(attrs, task_type)
-    |> Repo.insert()
+    case %Response{} |> Response.changeset(attrs, task_type) |> Repo.insert() do
+      {:ok, response} -> {:ok, response, nil}
+      error -> error
+    end
   end
 
   defp persist_response(%Response{choice: choice} = response, %{choice: choice}, _task_type) do
-    {:ok, response}
+    {:ok, response, choice}
   end
 
   defp persist_response(%Response{} = response, attrs, task_type) do
-    response
-    |> Response.changeset(attrs, task_type)
-    |> Repo.update()
+    previous_choice = response.choice
+
+    case response |> Response.changeset(attrs, task_type) |> Repo.update() do
+      {:ok, response} -> {:ok, response, previous_choice}
+      error -> error
+    end
   end
 
   defp complete_if_answered(participation) do

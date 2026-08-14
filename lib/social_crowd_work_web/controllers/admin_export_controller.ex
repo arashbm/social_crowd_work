@@ -1,7 +1,7 @@
 defmodule SocialCrowdWorkWeb.AdminExportController do
   use SocialCrowdWorkWeb, :controller
 
-  alias SocialCrowdWork.{AdminAudit, Exports}
+  alias SocialCrowdWork.{AdminAudit, Exports, ParticipantEventExports}
 
   def download(conn, params) do
     condition_key = non_blank(params["condition"])
@@ -28,6 +28,34 @@ defmodule SocialCrowdWorkWeb.AdminExportController do
     case Exports.reduce_jsonl(conn, &write_chunk/2, opts) do
       {:ok, conn} -> conn
       {:error, reason} -> raise "JSONL export failed: #{inspect(reason)}"
+    end
+  end
+
+  def participant_events(conn, params) do
+    condition_key = non_blank(params["condition"])
+
+    filename =
+      if condition_key,
+        do: "participant-events-#{safe_filename(condition_key)}.jsonl",
+        else: "participant-events-all.jsonl"
+
+    {:ok, _event} =
+      AdminAudit.record(conn.assigns.current_scope, "participant_telemetry_exported",
+        target_type: "export",
+        metadata: %{"condition_key" => condition_key || "all"}
+      )
+
+    conn =
+      conn
+      |> put_resp_content_type("application/x-ndjson")
+      |> put_resp_header("content-disposition", ~s(attachment; filename="#{filename}"))
+      |> send_chunked(200)
+
+    opts = if condition_key, do: [condition_key: condition_key], else: []
+
+    case ParticipantEventExports.reduce_jsonl(conn, &write_chunk/2, opts) do
+      {:ok, conn} -> conn
+      {:error, reason} -> raise "participant telemetry JSONL export failed: #{inspect(reason)}"
     end
   end
 

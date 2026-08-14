@@ -4,7 +4,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
   import Phoenix.LiveViewTest
   import SocialCrowdWork.Fixtures
 
-  alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
+  alias SocialCrowdWork.DataCollection.{
+    ParticipantEvent,
+    ParticipantLaunch,
+    Participation,
+    Response
+  }
+
   alias SocialCrowdWork.Repo
 
   test "rejects an invalid launch token without relying on session state", %{conn: conn} do
@@ -26,6 +32,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(view, "#accept-consent[data-shortcut='Enter,space']")
     refute has_element?(view, "#decline-consent[data-shortcut]")
     assert has_element?(view, "#participant-shortcuts[phx-hook]")
+    assert has_element?(view, "#participant-telemetry[phx-hook]")
+    refute has_element?(view, "#participant-telemetry[phx-update='ignore']")
+    refute has_element?(view, "#participant-telemetry[data-participation-id]")
     assert has_element?(view, "#participant-theme-switch[aria-label='Color theme']")
     assert has_element?(view, "#theme-system[data-phx-theme='system']")
     assert has_element?(view, "#theme-light[data-phx-theme='light']")
@@ -116,8 +125,17 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     view |> element("#accept-consent") |> render_click()
 
     assert has_element?(view, "#task-panel")
+
+    assert has_element?(
+             view,
+             "#participant-telemetry[data-participation-id][data-task-id][data-question-key='worry.v1']"
+           )
+
+    assert has_element?(view, "#task-panel[data-task-id]")
     assert has_element?(view, "#post-a", "Imported first")
     assert has_element?(view, "#post-b", "Imported second")
+    assert has_element?(view, "#post-a[data-copy-target='post_a']")
+    assert has_element?(view, "#post-b[data-copy-target='post_b']")
     assert render(element(view, "#comparison-posts > #post-a"))
     assert render(element(view, "#comparison-posts > #post-b"))
     assert has_element?(view, "#question-1[data-question-key='worry.v1'][data-state='active']")
@@ -141,6 +159,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
            )
 
     assert has_element?(view, "#question-1-region #worry-prompt-v1")
+
+    assert has_element?(
+             view,
+             "#question-1-region[data-copy-target='question'][data-question-key='worry.v1']"
+           )
+
     refute has_element?(view, "#question-2-region #restlessness-prompt-v1")
 
     assert has_element?(view, "#question-1-region #answer-post-a[data-shortcut='a']")
@@ -151,6 +175,41 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
 
     participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
     assert participation.consent_key == "test-consent.v1"
+  end
+
+  test "ingests consented participant events and replies with accepted event ids", %{conn: conn} do
+    condition = condition_fixture()
+    run_fixture(condition, %{tasks: [psychosocial_task()]})
+    attrs = participation_attrs(condition)
+    {:ok, view, _html} = enter_study(conn, condition, attrs)
+    event_id = Ecto.UUID.generate()
+
+    render_hook(view, "participant_events", %{
+      "events" => [%{"event_id" => event_id, "kind" => "visibility_hidden"}]
+    })
+
+    assert_reply view, %{accepted_ids: []}
+    assert Repo.aggregate(ParticipantEvent, :count) == 0
+
+    view |> element("#accept-consent") |> render_click()
+    participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
+    task = SocialCrowdWork.Experiments.get_task_by_position(participation.run_id, 1)
+
+    event = %{
+      "event_id" => event_id,
+      "kind" => "question_rendered",
+      "task_id" => task.id,
+      "question_key" => "worry.v1",
+      "client_session_id" => Ecto.UUID.generate(),
+      "sequence" => 1,
+      "client_elapsed_ms" => 12,
+      "metadata" => %{}
+    }
+
+    render_hook(view, "participant_events", %{"events" => [event]})
+
+    assert_reply view, %{accepted_ids: [^event_id]}
+    assert Repo.get_by!(ParticipantEvent, event_id: event_id).participant_id == participation.id
   end
 
   test "answers in order, locks future questions, and edits an answered question", %{

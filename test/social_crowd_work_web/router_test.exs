@@ -14,6 +14,17 @@ defmodule SocialCrowdWorkWeb.RouterTest do
              metadata.phoenix_live_view
   end
 
+  test "raw participant event export uses the authenticated admin controller scope" do
+    routes = SocialCrowdWorkWeb.Router.__routes__()
+
+    assert %{plug: SocialCrowdWorkWeb.AdminExportController, plug_opts: :participant_events} =
+             Enum.find(
+               routes,
+               &(&1.verb == :get and
+                   &1.path == "/admin/exports/participant-events/download")
+             )
+  end
+
   defp assert_route(routes, verb, path, plug_opts) do
     assert Enum.any?(routes, fn route ->
              route.verb == verb and route.path == path and route.plug_opts == plug_opts

@@ -18,3 +18,9 @@ SocialCrowdWork.Exports.reduce_jsonl(initial_accumulator, reducer,
 ```
 
 Exports contain raw Prolific participant, study, and session identifiers. Treat generated files as sensitive research data and restrict access accordingly.
+
+## Raw participant telemetry
+
+Authenticated administrators can separately download participant telemetry from the Exports page. The raw telemetry export uses JSONL schema version `1`, with exactly one recorded client event per line plus its condition, run, participation, and optional task context. It includes no calculated or derived metrics.
+
+Both all-condition and condition-specific downloads are available at `/admin/exports/participant-events/download`. These files also contain raw Prolific participant, study, and session identifiers and must be handled as sensitive research data.

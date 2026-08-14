@@ -7,7 +7,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
   alias SocialCrowdWork.AdminAudit.AuditEvent
   alias SocialCrowdWork.DataCollection
-  alias SocialCrowdWork.DataCollection.{Participation, Response}
+  alias SocialCrowdWork.DataCollection.{ParticipantEvent, Participation, Response}
   alias SocialCrowdWork.Experiments.{Condition, ImportBatch, Run}
   alias SocialCrowdWork.Repo
 
@@ -18,6 +18,15 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
   test "unauthenticated admin routes redirect at the router", %{conn: conn} do
     conn = conn |> delete_session(:admin_token) |> get(~p"/admin")
+    assert redirected_to(conn) == ~p"/admins/log-in"
+  end
+
+  test "raw participant telemetry download requires admin authentication", %{conn: conn} do
+    conn =
+      conn
+      |> delete_session(:admin_token)
+      |> get(~p"/admin/exports/participant-events/download")
+
     assert redirected_to(conn) == ~p"/admins/log-in"
   end
 
@@ -224,6 +233,65 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert export["condition"]["key"] == condition.key
     assert export["question"] == %{"key" => "test-comparison.v1", "number" => 1}
     assert Repo.get_by!(AuditEvent, action: "responses_exported")
+  end
+
+  test "raw participant telemetry links and authenticated download are separate", %{conn: conn} do
+    condition = condition_fixture()
+    run = run_fixture(condition)
+    attrs = participation_attrs(condition)
+
+    assert {:ok, participation} =
+             DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
+
+    event =
+      %ParticipantEvent{
+        participant_id: participation.id,
+        server_received_at: DateTime.utc_now()
+      }
+      |> ParticipantEvent.changeset(%{
+        task_id: hd(run.tasks).id,
+        question_key: "test-comparison.v1",
+        kind: :question_rendered,
+        event_id: Ecto.UUID.generate(),
+        client_session_id: Ecto.UUID.generate(),
+        sequence: 1,
+        client_elapsed_ms: 25,
+        metadata: %{}
+      })
+      |> Repo.insert!()
+
+    {:ok, exports, _html} = live(conn, ~p"/admin/exports")
+
+    assert has_element?(
+             exports,
+             "#participant-event-exports",
+             "No calculations or derived metrics"
+           )
+
+    assert has_element?(exports, "#export-participant-events-all")
+
+    assert has_element?(
+             exports,
+             "#export-participant-events-condition-#{condition.id} a[href='/admin/exports/participant-events/download?condition=#{condition.key}']"
+           )
+
+    conn =
+      get(conn, ~p"/admin/exports/participant-events/download?#{%{condition: condition.key}}")
+
+    body = response(conn, 200)
+    assert get_resp_header(conn, "content-type") |> hd() =~ "application/x-ndjson"
+
+    assert get_resp_header(conn, "content-disposition") == [
+             ~s(attachment; filename="participant-events-#{condition.key}.jsonl")
+           ]
+
+    export = Jason.decode!(String.trim(body))
+    assert export["schema_version"] == "1"
+    assert export["event"]["event_id"] == event.event_id
+    assert export["participation"]["prolific_participant_id"] == attrs.prolific_participant_id
+
+    audit = Repo.get_by!(AuditEvent, action: "participant_telemetry_exported")
+    assert audit.metadata == %{"condition_key" => condition.key}
   end
 
   test "run details are read-only and show imported task payloads", %{conn: conn} do

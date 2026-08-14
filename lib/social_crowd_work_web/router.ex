@@ -84,6 +84,7 @@ defmodule SocialCrowdWorkWeb.Router do
 
     post "/admins/update-password", AdminSessionController, :update_password
     get "/admin/exports/download", AdminExportController, :download
+    get "/admin/exports/participant-events/download", AdminExportController, :participant_events
   end
 
   scope "/", SocialCrowdWorkWeb do

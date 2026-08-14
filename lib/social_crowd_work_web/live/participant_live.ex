@@ -1,7 +1,7 @@
 defmodule SocialCrowdWorkWeb.ParticipantLive do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.{Consents, DataCollection}
+  alias SocialCrowdWork.{Consents, DataCollection, ParticipantEvents}
   alias SocialCrowdWork.DataCollection.Participation
   alias SocialCrowdWork.Experiments.Condition
 
@@ -53,6 +53,28 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   def handle_event("accept_consent", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "participant_events",
+        %{"events" => events},
+        %{assigns: %{participation: %Participation{consented_at: consented_at} = participation}} =
+          socket
+      )
+      when is_list(events) and not is_nil(consented_at) do
+    accepted_ids =
+      case ParticipantEvents.ingest_batch(participation, events) do
+        {:ok, accepted_ids} when is_list(accepted_ids) -> accepted_ids
+        {:ok, %{accepted_ids: accepted_ids}} when is_list(accepted_ids) -> accepted_ids
+        accepted_ids when is_list(accepted_ids) -> accepted_ids
+        _other -> []
+      end
+
+    {:reply, %{accepted_ids: accepted_ids}, socket}
+  end
+
+  def handle_event("participant_events", _params, socket) do
+    {:reply, %{accepted_ids: []}, socket}
+  end
 
   def handle_event(
         "answer",
@@ -131,107 +153,334 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} variant={:participant}>
       <div
-        id="participant-shortcuts"
-        phx-hook=".KeyboardShortcuts"
-        class="mx-auto w-full max-w-5xl"
+        id="participant-telemetry"
+        phx-hook=".ParticipantTelemetry"
+        data-participation-id={@participation && @participation.id}
+        data-task-id={if(@state == :task, do: @task && @task.id)}
+        data-question-key={if(@state == :task, do: @active_question_key)}
       >
-        <%= case @state do %>
-          <% :consent -> %>
-            <.consent_panel consent={@consent} launch_token={@launch_token} />
-          <% :task -> %>
-            <.task_panel
-              task={@task}
-              questionnaire={@questionnaire}
-              questions={@questions}
-              active_question_key={@active_question_key}
-              total_tasks={@total_tasks}
-            />
-          <% :completed -> %>
-            <.status_panel
-              id="participation-completed"
-              eyebrow="Study complete"
-              title="Your responses have been recorded"
-              message="Continue to Prolific to complete your submission and receive payment."
-            >
-              <a
-                id="complete-on-prolific"
-                href={~p"/participate/#{@launch_token}/complete"}
-                rel="noreferrer"
-                data-shortcut="Enter,space"
-                class="inline-flex items-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+        <div
+          id="participant-shortcuts"
+          phx-hook=".KeyboardShortcuts"
+          class="mx-auto w-full max-w-5xl"
+        >
+          <%= case @state do %>
+            <% :consent -> %>
+              <.consent_panel consent={@consent} launch_token={@launch_token} />
+            <% :task -> %>
+              <.task_panel
+                task={@task}
+                questionnaire={@questionnaire}
+                questions={@questions}
+                active_question_key={@active_question_key}
+                total_tasks={@total_tasks}
+              />
+            <% :completed -> %>
+              <.status_panel
+                id="participation-completed"
+                eyebrow="Study complete"
+                title="Your responses have been recorded"
+                message="Continue to Prolific to complete your submission and receive payment."
               >
-                Continue to Prolific <.flow_shortcuts />
-              </a>
-            </.status_panel>
-          <% :unavailable -> %>
-            <.status_panel
-              id="participation-unavailable"
-              eyebrow="Study unavailable"
-              title="There are no tasks available"
-              message="No study data was saved. Please return this submission from your Prolific submissions page."
-            >
-              <a
-                id="unavailable-return-to-prolific"
-                href="https://app.prolific.com/submissions"
-                rel="noreferrer"
-                data-shortcut="Enter,space"
-                class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+                <a
+                  id="complete-on-prolific"
+                  href={~p"/participate/#{@launch_token}/complete"}
+                  rel="noreferrer"
+                  data-shortcut="Enter,space"
+                  class="inline-flex items-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+                >
+                  Continue to Prolific <.flow_shortcuts />
+                </a>
+              </.status_panel>
+            <% :unavailable -> %>
+              <.status_panel
+                id="participation-unavailable"
+                eyebrow="Study unavailable"
+                title="There are no tasks available"
+                message="No study data was saved. Please return this submission from your Prolific submissions page."
               >
-                Open Prolific submissions <.flow_shortcuts />
-              </a>
-            </.status_panel>
-          <% :error -> %>
-            <.status_panel
-              id="participation-error"
-              eyebrow="Unable to continue"
-              title="This participant session could not be verified"
-              message="Return to Prolific and reopen the study from your submissions page."
-            >
-              <a
-                id="error-return-to-prolific"
-                href="https://app.prolific.com/submissions"
-                rel="noreferrer"
-                data-shortcut="Enter,space"
-                class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+                <a
+                  id="unavailable-return-to-prolific"
+                  href="https://app.prolific.com/submissions"
+                  rel="noreferrer"
+                  data-shortcut="Enter,space"
+                  class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+                >
+                  Open Prolific submissions <.flow_shortcuts />
+                </a>
+              </.status_panel>
+            <% :error -> %>
+              <.status_panel
+                id="participation-error"
+                eyebrow="Unable to continue"
+                title="This participant session could not be verified"
+                message="Return to Prolific and reopen the study from your submissions page."
               >
-                Open Prolific submissions <.flow_shortcuts />
-              </a>
-            </.status_panel>
-          <% _loading -> %>
-            <div id="participant-loading" class="py-20 text-center text-slate-500 dark:text-slate-400">
-              Loading study...
-            </div>
-        <% end %>
+                <a
+                  id="error-return-to-prolific"
+                  href="https://app.prolific.com/submissions"
+                  rel="noreferrer"
+                  data-shortcut="Enter,space"
+                  class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+                >
+                  Open Prolific submissions <.flow_shortcuts />
+                </a>
+              </.status_panel>
+            <% _loading -> %>
+              <div
+                id="participant-loading"
+                class="py-20 text-center text-slate-500 dark:text-slate-400"
+              >
+                Loading study...
+              </div>
+          <% end %>
 
-        <script :type={Phoenix.LiveView.ColocatedHook} name=".KeyboardShortcuts">
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".KeyboardShortcuts">
+            export default {
+              mounted() {
+                this.pending = false
+                this.handleEvent("scroll_to_top", () => {
+                  window.scrollTo({top: 0, behavior: "smooth"})
+                })
+                this.onKeydown = event => {
+                  if (this.pending || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+                  if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) || event.target.isContentEditable) return
+
+                  const key = event.code === "Space" ? "space" : (event.key.length === 1 ? event.key.toLowerCase() : event.key)
+                  const target = [...this.el.querySelectorAll("[data-shortcut]")].find(element =>
+                    element.dataset.shortcut.split(",").map(value => value.trim().toLowerCase()).includes(key.toLowerCase())
+                  )
+
+                  if (!target || target.disabled || target.getAttribute("aria-disabled") === "true") return
+
+                  event.preventDefault()
+                  this.pending = true
+                  target.click()
+                }
+                window.addEventListener("keydown", this.onKeydown)
+              },
+              updated() {
+                this.pending = false
+              },
+              destroyed() {
+                window.removeEventListener("keydown", this.onKeydown)
+              }
+            }
+          </script>
+        </div>
+
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".ParticipantTelemetry">
           export default {
             mounted() {
-              this.pending = false
-              this.handleEvent("scroll_to_top", () => {
-                window.scrollTo({top: 0, behavior: "smooth"})
-              })
-              this.onKeydown = event => {
-                if (this.pending || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
-                if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) || event.target.isContentEditable) return
+              this.sessionKey = "participant-telemetry.client-session-id.v1"
+              this.sequenceKey = "participant-telemetry.sequence.v1"
+              this.clientSessionId = this.read(this.sessionKey) || this.uuid()
+              this.write(this.sessionKey, this.clientSessionId)
+              this.sequence = Number.parseInt(this.read(this.sequenceKey) || "0", 10) || 0
+              this.queue = []
+              this.queueKey = null
+              this.inFlight = false
+              this.lastRender = null
+              this.exposure = null
+              this.visible = document.visibilityState === "visible"
+              this.focused = document.hasFocus()
 
-                const key = event.code === "Space" ? "space" : (event.key.length === 1 ? event.key.toLowerCase() : event.key)
-                const target = [...this.el.querySelectorAll("[data-shortcut]")].find(element =>
-                  element.dataset.shortcut.split(",").map(value => value.trim().toLowerCase()).includes(key.toLowerCase())
-                )
-
-                if (!target || target.disabled || target.getAttribute("aria-disabled") === "true") return
-
-                event.preventDefault()
-                this.pending = true
-                target.click()
+              this.onVisibilityChange = () => {
+                this.accountExposure()
+                this.visible = document.visibilityState === "visible"
+                this.focused = this.visible && document.hasFocus()
+                this.emit(this.visible ? "visibility_visible" : "visibility_hidden")
+                if (!this.visible) this.flush()
               }
-              window.addEventListener("keydown", this.onKeydown)
+              this.onFocus = () => {
+                this.accountExposure()
+                this.focused = true
+                this.emit("window_focused")
+              }
+              this.onBlur = () => {
+                this.accountExposure()
+                this.focused = false
+                this.emit("window_blurred")
+              }
+              this.onCopy = event => {
+                const target = event.target.closest?.("[data-copy-target]")
+                if (target && this.el.contains(target)) {
+                  this.emit("copy", {target: target.dataset.copyTarget})
+                }
+              }
+
+              document.addEventListener("visibilitychange", this.onVisibilityChange)
+              window.addEventListener("focus", this.onFocus)
+              window.addEventListener("blur", this.onBlur)
+              this.el.addEventListener("copy", this.onCopy)
+              this.flushTimer = window.setInterval(() => this.flush(), 1500)
+              this.activateParticipation()
+              this.scheduleRenderCheck()
             },
             updated() {
-              this.pending = false
+              this.activateParticipation()
+              this.scheduleRenderCheck()
             },
             destroyed() {
-              window.removeEventListener("keydown", this.onKeydown)
+              this.finishExposure("page_unloaded")
+              this.persistQueue()
+              document.removeEventListener("visibilitychange", this.onVisibilityChange)
+              window.removeEventListener("focus", this.onFocus)
+              window.removeEventListener("blur", this.onBlur)
+              this.el.removeEventListener("copy", this.onCopy)
+              window.clearInterval(this.flushTimer)
+              window.clearTimeout(this.retryTimer)
+              window.cancelAnimationFrame(this.renderFrame)
+            },
+            activateParticipation() {
+              const participationId = this.el.dataset.participationId
+              if (!participationId || this.queueKey) return
+
+              this.queueKey = `participant-telemetry.queue.v1.${participationId}`
+              try {
+                const stored = JSON.parse(this.read(this.queueKey) || "[]")
+                this.queue = Array.isArray(stored) ? stored : []
+              } catch (_error) {
+                this.queue = []
+              }
+
+              const contextKey = `participant-telemetry.context.v1.${participationId}`
+              if (!this.read(contextKey)) {
+                this.emit("client_context", this.clientContext(), {taskId: null, questionKey: null})
+                this.write(contextKey, "1")
+              }
+              this.flush()
+            },
+            scheduleRenderCheck() {
+              window.cancelAnimationFrame(this.renderFrame)
+              this.renderFrame = window.requestAnimationFrame(() => this.detectRender())
+            },
+            detectRender() {
+              if (!this.queueKey) return
+
+              const taskId = this.el.dataset.taskId || null
+              const questionKey = this.el.dataset.questionKey || null
+              const renderKey = `${taskId || ""}:${questionKey || ""}`
+              if (renderKey === this.lastRender) return
+
+              const reason = this.lastTaskId && taskId !== this.lastTaskId ? "task_changed" : "question_changed"
+              this.finishExposure(reason)
+              const previousTaskId = this.lastTaskId
+              this.lastRender = renderKey
+              this.lastTaskId = taskId
+              if (taskId && taskId !== previousTaskId) this.emit("task_rendered", {}, {taskId, questionKey: null})
+              if (taskId && questionKey) {
+                this.emit("question_rendered", {}, {taskId, questionKey})
+                this.exposure = {
+                  taskId,
+                  questionKey,
+                  measuredAt: performance.now(),
+                  totalMs: 0,
+                  visibleMs: 0,
+                  focusedMs: 0
+                }
+              }
+            },
+            accountExposure() {
+              if (!this.exposure) return
+              const now = performance.now()
+              const elapsed = Math.max(0, now - this.exposure.measuredAt)
+              this.exposure.totalMs += elapsed
+              if (this.visible) this.exposure.visibleMs += elapsed
+              if (this.visible && this.focused) this.exposure.focusedMs += elapsed
+              this.exposure.measuredAt = now
+            },
+            finishExposure(reason = "page_unloaded") {
+              if (!this.exposure) return
+              this.accountExposure()
+              const exposure = this.exposure
+              this.exposure = null
+              this.emit("question_exposure", {
+                reason,
+                visible_ms: Math.round(exposure.visibleMs),
+                focused_ms: Math.round(exposure.focusedMs)
+              }, {...exposure, durationMs: Math.round(exposure.totalMs)})
+            },
+            emit(eventType, payload = {}, scope = {}) {
+              if (!this.queueKey) return
+              this.sequence += 1
+              this.write(this.sequenceKey, String(this.sequence))
+              this.queue.push({
+                event_id: this.uuid(),
+                client_session_id: this.clientSessionId,
+                sequence: this.sequence,
+                kind: eventType,
+                client_elapsed_ms: Math.round(performance.now()),
+                task_id: scope.taskId === undefined ? (this.el.dataset.taskId || null) : scope.taskId,
+                question_key: scope.questionKey === undefined ? (this.el.dataset.questionKey || null) : scope.questionKey,
+                duration_ms: scope.durationMs === undefined ? null : scope.durationMs,
+                metadata: payload
+              })
+              this.persistQueue()
+              if (this.queue.length >= 20) this.flush()
+            },
+            flush() {
+              if (!this.queueKey || this.inFlight || this.queue.length === 0) return
+              const batch = this.queue.slice(0, 20)
+              this.inFlight = true
+              window.clearTimeout(this.retryTimer)
+              this.retryTimer = window.setTimeout(() => {
+                this.inFlight = false
+              }, 5000)
+
+              this.pushEvent("participant_events", {events: batch}, reply => {
+                window.clearTimeout(this.retryTimer)
+                const accepted = new Set(Array.isArray(reply?.accepted_ids) ? reply.accepted_ids : [])
+                this.queue = this.queue.filter(event => !accepted.has(event.event_id))
+                this.inFlight = false
+                this.persistQueue()
+                if (this.queue.length > 0 && accepted.size > 0) this.flush()
+              })
+            },
+            persistQueue() {
+              if (this.queueKey) this.write(this.queueKey, JSON.stringify(this.queue))
+            },
+            clientContext() {
+              const ua = navigator.userAgent
+              const browser = ua.match(/(?:Edg|Chrome|Firefox|Version)\/(\d+)/)
+              let browserFamily = "other"
+              if (/Edg\//.test(ua)) browserFamily = "edge"
+              else if (/Firefox\//.test(ua)) browserFamily = "firefox"
+              else if (/Chrome\//.test(ua)) browserFamily = "chrome"
+              else if (/Safari\//.test(ua)) browserFamily = "safari"
+
+              let osFamily = "other"
+              if (/Android/.test(ua)) osFamily = "android"
+              else if (/iPhone|iPad|iPod/.test(ua)) osFamily = "ios"
+              else if (/Windows/.test(ua)) osFamily = "windows"
+              else if (/Mac OS/.test(ua)) osFamily = "macos"
+              else if (/Linux/.test(ua)) osFamily = "linux"
+
+              const width = window.innerWidth
+              const touchCapable = navigator.maxTouchPoints > 0
+              return {
+                device_class: width < 640 ? "mobile" : (width < 1024 && touchCapable ? "tablet" : "desktop"),
+                viewport_bucket: width < 640 ? "small" : (width < 1024 ? "medium" : "large"),
+                touch_capable: touchCapable,
+                browser_family: browserFamily,
+                browser_major: browser ? Number.parseInt(browser[1], 10) : null,
+                os_family: osFamily
+              }
+            },
+            uuid() {
+              if (crypto.randomUUID) return crypto.randomUUID()
+              const bytes = crypto.getRandomValues(new Uint8Array(16))
+              bytes[6] = (bytes[6] & 15) | 64
+              bytes[8] = (bytes[8] & 63) | 128
+              return [...bytes].map((byte, index) =>
+                `${[4, 6, 8, 10].includes(index) ? "-" : ""}${byte.toString(16).padStart(2, "0")}`
+              ).join("")
+            },
+            read(key) {
+              try { return sessionStorage.getItem(key) } catch (_error) { return null }
+            },
+            write(key, value) {
+              try { sessionStorage.setItem(key, value) } catch (_error) {}
             }
           }
         </script>
@@ -287,7 +536,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     assigns = assign(assigns, :progress, progress)
 
     ~H"""
-    <section id="task-panel" class="space-y-6">
+    <section id="task-panel" data-task-id={@task.id} class="space-y-6">
       <header class="flex items-center gap-4" id="task-progress">
         <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
           <div
@@ -303,12 +552,23 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:p-9">
         <%= if @questionnaire.task_type() == :comparison do %>
           <div class="grid gap-4 md:grid-cols-2" id="comparison-posts">
-            <.post_card id="post-a" label="Post A" text={@task.stimuli["post_a"]["text"]} />
-            <.post_card id="post-b" label="Post B" text={@task.stimuli["post_b"]["text"]} />
+            <.post_card
+              id="post-a"
+              copy_target="post_a"
+              label="Post A"
+              text={@task.stimuli["post_a"]["text"]}
+            />
+            <.post_card
+              id="post-b"
+              copy_target="post_b"
+              label="Post B"
+              text={@task.stimuli["post_b"]["text"]}
+            />
           </div>
         <% else %>
           <article
             id="single-post"
+            data-copy-target="post"
             class="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:p-8"
           >
             <p class="whitespace-pre-wrap break-words text-base leading-7 text-slate-800 dark:text-slate-100 sm:text-lg">
@@ -414,6 +674,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         <div class="overflow-hidden">
           <div
             id={"question-#{@question.number}-region"}
+            data-copy-target="question"
+            data-question-key={@question.key}
             role="region"
             aria-labelledby={"question-#{@question.number}-header"}
             class="border-t border-indigo-200 px-5 py-6 dark:border-indigo-500/30 sm:px-6"
@@ -519,6 +781,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   attr :id, :string, required: true
+  attr :copy_target, :string, required: true
   attr :label, :string, required: true
   attr :text, :string, required: true
 
@@ -526,6 +789,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     ~H"""
     <article
       id={@id}
+      data-copy-target={@copy_target}
       class="flex min-h-56 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-950/60"
     >
       <span class="border-b border-slate-200 px-6 py-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-700 dark:border-slate-700 dark:text-indigo-300 sm:px-7">
