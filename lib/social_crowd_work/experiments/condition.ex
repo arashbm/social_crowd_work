@@ -4,6 +4,7 @@ defmodule SocialCrowdWork.Experiments.Condition do
 
   alias SocialCrowdWork.Experiments.Run
   alias SocialCrowdWork.Consents
+  alias SocialCrowdWork.Instructions
 
   @task_types [:comparison, :binary_question]
   @statuses [:draft, :active, :paused, :closed]
@@ -16,6 +17,7 @@ defmodule SocialCrowdWork.Experiments.Condition do
     field :prolific_study_id, :string
     field :prolific_completion_code, :string
     field :consent_key, :string
+    field :instructions_key, :string
     field :status, Ecto.Enum, values: @statuses, default: :draft
 
     has_many :runs, Run
@@ -33,6 +35,7 @@ defmodule SocialCrowdWork.Experiments.Condition do
       :prolific_study_id,
       :prolific_completion_code,
       :consent_key,
+      :instructions_key,
       :status
     ])
     |> validate_required([:key, :task_type, :variants, :entry_token])
@@ -40,12 +43,14 @@ defmodule SocialCrowdWork.Experiments.Condition do
     |> validate_length(:entry_token, min: 1, max: 255)
     |> validate_variants()
     |> validate_consent_key()
+    |> validate_instructions_key()
     |> validate_active_configuration()
     |> unique_constraint(:key)
     |> unique_constraint(:entry_token)
     |> check_constraint(:key, name: :conditions_key_not_blank)
     |> check_constraint(:entry_token, name: :conditions_entry_token_not_blank)
     |> check_constraint(:consent_key, name: :conditions_consent_key_not_blank)
+    |> check_constraint(:instructions_key, name: :conditions_instructions_key_not_blank)
     |> check_constraint(:status, name: :conditions_status_valid)
     |> check_constraint(:task_type, name: :conditions_task_type_valid)
     |> check_constraint(:variants, name: :conditions_variants_is_object)
@@ -53,6 +58,20 @@ defmodule SocialCrowdWork.Experiments.Condition do
 
   def task_types, do: @task_types
   def statuses, do: @statuses
+
+  def operational_changeset(condition, attrs) do
+    condition
+    |> cast(attrs, [
+      :prolific_study_id,
+      :prolific_completion_code,
+      :consent_key,
+      :status
+    ])
+    |> validate_consent_key()
+    |> validate_active_configuration()
+    |> check_constraint(:consent_key, name: :conditions_consent_key_not_blank)
+    |> check_constraint(:status, name: :conditions_status_valid)
+  end
 
   defp validate_variants(changeset) do
     validate_change(changeset, :variants, fn
@@ -66,6 +85,15 @@ defmodule SocialCrowdWork.Experiments.Condition do
       case Consents.fetch(consent_key) do
         {:ok, _consent} -> []
         :error -> [consent_key: "is not a known consent definition"]
+      end
+    end)
+  end
+
+  defp validate_instructions_key(changeset) do
+    validate_change(changeset, :instructions_key, fn :instructions_key, instructions_key ->
+      case Instructions.fetch(instructions_key) do
+        {:ok, _instruction_set} -> []
+        :error -> [instructions_key: "is not a known instruction set"]
       end
     end)
   end

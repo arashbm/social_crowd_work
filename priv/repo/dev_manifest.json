@@ -1,9 +1,10 @@
 {
-  "format_version": "2",
+  "format_version": "3",
   "conditions": [
     {
       "key": "dev-comparison-en",
       "task_type": "comparison",
+      "instructions_key": "dev-instructions.v1",
       "variants": {
         "language": "en",
         "phase": "development"
@@ -159,6 +160,7 @@
     {
       "key": "dev-binary-en",
       "task_type": "binary_question",
+      "instructions_key": "dev-instructions.v1",
       "variants": {
         "language": "en",
         "phase": "development"

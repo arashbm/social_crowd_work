@@ -66,6 +66,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--condition-key", required=True)
     parser.add_argument("--questionnaire-key", required=True)
     parser.add_argument(
+        "--instructions-key",
+        help="optional instruction set key to assign to the condition",
+    )
+    parser.add_argument(
         "--run-key-prefix",
         help="run key prefix; defaults to the condition key",
     )
@@ -318,36 +322,38 @@ def build_manifest(
     seed: int,
     comparisons: int,
     rng: random.Random,
+    instructions_key: str | None = None,
 ) -> dict[str, Any]:
     validate_key("condition key", condition_key)
     validate_key("run key prefix", run_key_prefix)
     validate_key("questionnaire key", questionnaire_key)
+    if instructions_key is not None:
+        validate_key("instructions key", instructions_key)
 
     runs = [
         build_run(posts, batch, run_key_prefix, questionnaire_key, index, rng)
         for index, batch in enumerate(batches, start=1)
     ]
 
-    return {
-        "format_version": "2",
-        "conditions": [
-            {
-                "key": condition_key,
-                "task_type": "comparison",
-                "variants": {
-                    "generator": "generate_comparison_manifest.py",
-                    "generator_version": "2",
-                    "seed": seed,
-                    "sampled_pairs": comparisons,
-                    "pairs_per_full_run": PAIRS_PER_RUN,
-                    "questionnaire_key": questionnaire_key,
-                    "pair_sampling": "uniform_without_replacement",
-                    "run_partitioning": "minimum_post_replication_heuristic",
-                },
-                "runs": runs,
-            }
-        ],
+    condition = {
+        "key": condition_key,
+        "task_type": "comparison",
+        "variants": {
+            "generator": "generate_comparison_manifest.py",
+            "generator_version": "3",
+            "seed": seed,
+            "sampled_pairs": comparisons,
+            "pairs_per_full_run": PAIRS_PER_RUN,
+            "questionnaire_key": questionnaire_key,
+            "pair_sampling": "uniform_without_replacement",
+            "run_partitioning": "minimum_post_replication_heuristic",
+        },
+        "runs": runs,
     }
+    if instructions_key is not None:
+        condition["instructions_key"] = instructions_key
+
+    return {"format_version": "3", "conditions": [condition]}
 
 
 def validate_key(label: str, value: str) -> None:
@@ -475,6 +481,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed,
             args.comparisons,
             sampling_rng,
+            args.instructions_key,
         )
         write_manifest(args.output, manifest, args.force)
         print_summary(posts, batches, args.comparisons, seed)

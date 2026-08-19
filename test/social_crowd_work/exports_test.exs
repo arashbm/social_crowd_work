@@ -61,7 +61,7 @@ defmodule SocialCrowdWork.ExportsTest do
   end
 
   test "exports completed participation and response timestamps" do
-    condition = condition_fixture(:binary_question)
+    condition = condition_fixture(:binary_question, %{instructions_key: "test-instructions.v1"})
     run = run_fixture(condition)
     attrs = participation_attrs(condition)
 
@@ -72,15 +72,24 @@ defmodule SocialCrowdWork.ExportsTest do
     response = insert_response(participation, task, "test-binary-question.v1", :yes)
 
     participation
-    |> Ecto.Changeset.change(%{status: :completed, completed_at: response.answered_at})
+    |> Ecto.Changeset.change(%{
+      status: :completed,
+      completed_at: response.answered_at,
+      instruction_pages_completed: 1,
+      instructions_completed_at: response.answered_at
+    })
     |> Repo.update!()
 
     assert {:ok, [line]} = collect_jsonl(condition_key: condition.key)
     record = Jason.decode!(line)
 
-    assert record["schema_version"] == "2"
+    assert record["schema_version"] == "3"
     assert record["condition"]["task_type"] == "binary_question"
+    assert record["condition"]["instructions_key"] == "test-instructions.v1"
     assert record["participation"]["status"] == "completed"
+    assert record["participation"]["instructions_key"] == "test-instructions.v1"
+    assert record["participation"]["instruction_pages_completed"] == 1
+    assert record["participation"]["instructions_completed_at"]
     assert record["participation"]["completed_at"]
     assert record["response"]["choice"] == "yes"
     assert record["response"]["first_answered_at"]

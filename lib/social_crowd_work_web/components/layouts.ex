@@ -42,12 +42,14 @@ defmodule SocialCrowdWorkWeb.Layouts do
         <div class="relative min-h-screen overflow-hidden bg-[#f5f3ee] text-slate-900 transition-colors dark:bg-[#0d1117] dark:text-slate-100">
           <div class="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top_left,rgba(79,70,229,0.13),transparent_58%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(99,102,241,0.17),transparent_58%)]" />
           <div class="pointer-events-none absolute -right-24 top-48 size-72 rounded-full border border-indigo-200/60 dark:border-indigo-900/50" />
-          <div class="absolute right-4 top-4 z-20 sm:right-8 sm:top-6">
-            <.participant_theme_toggle />
+          <div class="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-2 py-2 sm:px-8 sm:py-6">
+            <div id="participant-toolbar" class="flex shrink-0 justify-end">
+              <.participant_theme_toggle />
+            </div>
+            <main class="flex flex-1 items-start py-1 sm:items-center sm:py-6">
+              <div class="w-full">{render_slot(@inner_block)}</div>
+            </main>
           </div>
-          <main class="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-4 py-8 sm:px-8 sm:py-12">
-            <div class="w-full">{render_slot(@inner_block)}</div>
-          </main>
         </div>
       <% @variant == :admin -> %>
         <div class="min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
@@ -237,7 +239,7 @@ defmodule SocialCrowdWorkWeb.Layouts do
     ~H"""
     <div
       id="participant-theme-switch"
-      role="group"
+      role="radiogroup"
       aria-label="Color theme"
       class="relative grid grid-cols-3 overflow-hidden rounded-xl border border-slate-300 bg-white/80 p-1 text-slate-600 shadow-sm backdrop-blur transition-colors dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
     >
@@ -245,38 +247,41 @@ defmodule SocialCrowdWorkWeb.Layouts do
       <button
         id="theme-system"
         type="button"
+        role="radio"
+        aria-checked="true"
         aria-label="Use system theme"
         title="System theme"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
-        class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:px-3"
+        class="relative z-10 inline-flex size-8 items-center justify-center rounded-md transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:size-9 sm:rounded-lg"
       >
         <.icon name="hero-computer-desktop-micro" class="size-4" />
-        <span class="hidden sm:inline">System</span>
       </button>
       <button
         id="theme-light"
         type="button"
+        role="radio"
+        aria-checked="false"
         aria-label="Use light theme"
         title="Light theme"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
-        class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:px-3"
+        class="relative z-10 inline-flex size-8 items-center justify-center rounded-md transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:size-9 sm:rounded-lg"
       >
         <.icon name="hero-sun-micro" class="size-4" />
-        <span class="hidden sm:inline">Light</span>
       </button>
       <button
         id="theme-dark"
         type="button"
+        role="radio"
+        aria-checked="false"
         aria-label="Use dark theme"
         title="Dark theme"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
-        class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:px-3"
+        class="relative z-10 inline-flex size-8 items-center justify-center rounded-md transition hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:text-white sm:size-9 sm:rounded-lg"
       >
         <.icon name="hero-moon-micro" class="size-4" />
-        <span class="hidden sm:inline">Dark</span>
       </button>
     </div>
     """

@@ -36,6 +36,7 @@ defmodule SocialCrowdWork.ImportsTest do
       assert condition.status == :draft
       assert condition.task_type == :comparison
       assert condition.variants == %{"language" => "en", "phase" => "pilot"}
+      assert condition.instructions_key == nil
 
       run = Repo.get_by!(Run, condition_id: condition.id, external_key: "run-001")
       task = Repo.get_by!(Task, run_id: run.id, position: 1)
@@ -120,6 +121,32 @@ defmodule SocialCrowdWork.ImportsTest do
       assert Repo.aggregate(ImportBatch, :count) == 0
     end
 
+    test "persists normalized instruction keys and checks existing condition consistency" do
+      key = unique_key("instructions")
+
+      first_condition =
+        condition_data(key, [run_data("run-001")])
+        |> Map.put("instructions_key", "  test-instructions.v1  ")
+
+      assert {:ok, _result} =
+               Imports.import_manifest(encode_manifest([first_condition]), filename: "first.json")
+
+      assert Repo.get_by!(Condition, key: key).instructions_key == "test-instructions.v1"
+
+      second_condition = condition_data(key, [run_data("run-002")])
+
+      assert {:error, errors} =
+               Imports.import_manifest(encode_manifest([second_condition]),
+                 filename: "second.json"
+               )
+
+      assert_error(
+        errors,
+        "conditions[0].instructions_key",
+        "does not match the existing condition"
+      )
+    end
+
     test "does not write earlier valid conditions when a later condition conflicts" do
       existing_key = unique_key("existing")
       new_key = unique_key("new")
@@ -140,6 +167,38 @@ defmodule SocialCrowdWork.ImportsTest do
   end
 
   describe "manifest validation" do
+    test "accepts only manifest format version 3" do
+      contents =
+        Jason.encode!(%{
+          "format_version" => "2",
+          "conditions" => [condition_data(unique_key("v2"), [run_data("run-001")])]
+        })
+
+      assert {:error, errors} = Imports.validate_manifest(contents)
+      assert_error(errors, "format_version", "must be 3")
+    end
+
+    test "validates optional instruction set keys" do
+      known =
+        condition_data(unique_key("known-instructions"), [run_data("run-001")])
+        |> Map.put("instructions_key", " test-instructions.v1 ")
+
+      assert {:ok, plan} = Imports.validate_manifest(encode_manifest([known]))
+      assert hd(plan.conditions).instructions_key == "test-instructions.v1"
+
+      unknown =
+        condition_data(unique_key("unknown-instructions"), [run_data("run-001")])
+        |> Map.put("instructions_key", "unknown.v1")
+
+      assert {:error, errors} = Imports.validate_manifest(encode_manifest([unknown]))
+
+      assert_error(
+        errors,
+        "conditions[0].instructions_key",
+        "is not a known instruction set"
+      )
+    end
+
     test "reports malformed JSON at the document root" do
       assert {:error, [error]} = Imports.validate_manifest("{not json")
       assert error.path == "$"
@@ -268,7 +327,7 @@ defmodule SocialCrowdWork.ImportsTest do
   end
 
   defp encode_manifest(conditions) do
-    Jason.encode!(%{"format_version" => "2", "conditions" => conditions})
+    Jason.encode!(%{"format_version" => "3", "conditions" => conditions})
   end
 
   defp condition_data(key, runs) do

@@ -3,11 +3,12 @@ defmodule SocialCrowdWork.Imports.Manifest do
 
   alias SocialCrowdWork.Experiments.Task
   alias SocialCrowdWork.Imports.ImportError
+  alias SocialCrowdWork.Instructions
   alias SocialCrowdWork.Questionnaires
 
-  @format_version "2"
+  @format_version "3"
   @top_level_keys ["format_version", "conditions"]
-  @condition_keys ["key", "task_type", "variants", "runs"]
+  @condition_keys ["key", "task_type", "variants", "instructions_key", "runs"]
   @run_keys ["key", "tasks"]
   @task_keys ["position", "questionnaire_key", "stimuli"]
 
@@ -66,13 +67,21 @@ defmodule SocialCrowdWork.Imports.Manifest do
     {key, errors} = required_string(condition, "key", "#{path}.key", errors)
     {task_type, errors} = task_type(condition, path, errors)
     {variants, errors} = required_map(condition, "variants", "#{path}.variants", errors)
+    {instructions_key, errors} = optional_string(condition, "instructions_key", path, errors)
+    errors = validate_instructions_key(instructions_key, "#{path}.instructions_key", errors)
     {runs, errors} = required_non_empty_list(condition, "runs", "#{path}.runs", errors)
     {normalized_runs, errors} = validate_runs(runs, task_type, path, errors)
     errors = duplicate_errors(normalized_runs, :external_key, "#{path}.runs", errors)
 
     value =
       if key && task_type && variants && runs do
-        %{key: key, task_type: task_type, variants: variants, runs: normalized_runs}
+        %{
+          key: key,
+          task_type: task_type,
+          variants: variants,
+          instructions_key: instructions_key,
+          runs: normalized_runs
+        }
       end
 
     {value, errors}
@@ -221,6 +230,31 @@ defmodule SocialCrowdWork.Imports.Manifest do
       value when is_map(value) -> {value, errors}
       nil -> {nil, [error(path, "is required") | errors]}
       _other -> {nil, [error(path, "must be an object") | errors]}
+    end
+  end
+
+  defp optional_string(map, key, parent_path, errors) do
+    case Map.fetch(map, key) do
+      :error ->
+        {nil, errors}
+
+      {:ok, value} when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {nil, [error("#{parent_path}.#{key}", "must not be blank") | errors]}
+          normalized -> {normalized, errors}
+        end
+
+      {:ok, _value} ->
+        {nil, [error("#{parent_path}.#{key}", "must be a string") | errors]}
+    end
+  end
+
+  defp validate_instructions_key(nil, _path, errors), do: errors
+
+  defp validate_instructions_key(instructions_key, path, errors) do
+    case Instructions.fetch(instructions_key) do
+      {:ok, _instruction_set} -> errors
+      :error -> [error(path, "is not a known instruction set") | errors]
     end
   end
 

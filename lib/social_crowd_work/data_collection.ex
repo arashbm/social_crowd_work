@@ -8,6 +8,7 @@ defmodule SocialCrowdWork.DataCollection do
   alias SocialCrowdWork.Consents
   alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
   alias SocialCrowdWork.Experiments.{Condition, Run, Task}
+  alias SocialCrowdWork.Instructions
   alias SocialCrowdWork.ParticipantEvents
   alias SocialCrowdWork.Questionnaires
   alias SocialCrowdWork.Repo
@@ -172,6 +173,40 @@ defmodule SocialCrowdWork.DataCollection do
     end
   end
 
+  def instruction_page(%Participation{id: participation_id}) do
+    case Repo.get(Participation, participation_id) do
+      nil ->
+        {:error, :not_found}
+
+      participation ->
+        instruction_page_for(participation)
+    end
+  end
+
+  def advance_instruction_page(
+        %Participation{id: participation_id},
+        submitted_page_number
+      )
+      when is_integer(submitted_page_number) and submitted_page_number > 0 do
+    Repo.transaction(fn ->
+      participation =
+        Participation
+        |> where([participation], participation.id == ^participation_id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
+
+      if participation.status == :completed do
+        Repo.rollback(:participation_completed)
+      end
+
+      advance_instruction_page!(participation, submitted_page_number)
+    end)
+  end
+
+  def advance_instruction_page(%Participation{}, _submitted_page_number) do
+    {:error, :instruction_page_out_of_order}
+  end
+
   def record_response(%Participation{id: participation_id}, task_id, question_key, choice) do
     Repo.transaction(fn ->
       participation =
@@ -182,6 +217,10 @@ defmodule SocialCrowdWork.DataCollection do
 
       if participation.status == :completed do
         Repo.rollback(:participation_completed)
+      end
+
+      if not instructions_complete?(participation) do
+        Repo.rollback(:instructions_incomplete)
       end
 
       case task_with_type(task_id, participation.run_id) do
@@ -345,6 +384,8 @@ defmodule SocialCrowdWork.DataCollection do
         |> Map.put(:run_id, run.id)
         |> Map.put(:consent_key, consent_key)
         |> Map.put(:consented_at, accepted_at)
+        |> Map.put(:instructions_key, condition.instructions_key)
+        |> Map.put(:instruction_pages_completed, 0)
         |> Map.put(:status, :assigned)
         |> Map.put(:started_at, accepted_at)
 
@@ -509,6 +550,89 @@ defmodule SocialCrowdWork.DataCollection do
   end
 
   defp mark_in_progress(_participation), do: :ok
+
+  defp instruction_page_for(%Participation{instructions_key: nil}), do: {:ok, :complete}
+
+  defp instruction_page_for(%Participation{} = participation) do
+    with {:ok, instruction_set} <- Instructions.fetch(participation.instructions_key) do
+      pages = instruction_set.pages()
+
+      case Enum.at(pages, participation.instruction_pages_completed) do
+        nil ->
+          {:ok, :complete}
+
+        page ->
+          {:ok,
+           %{
+             instruction_set: instruction_set,
+             page: page,
+             page_number: participation.instruction_pages_completed + 1,
+             total_pages: length(pages)
+           }}
+      end
+    else
+      :error -> {:error, :unknown_instruction_set}
+    end
+  end
+
+  defp advance_instruction_page!(%Participation{instructions_key: nil}, _page_number) do
+    Repo.rollback(:instruction_page_out_of_order)
+  end
+
+  defp advance_instruction_page!(participation, submitted_page_number) do
+    case Instructions.fetch(participation.instructions_key) do
+      {:ok, instruction_set} ->
+        completed = participation.instruction_pages_completed
+        total_pages = length(instruction_set.pages())
+
+        cond do
+          submitted_page_number <= completed ->
+            participation
+
+          submitted_page_number == completed + 1 and submitted_page_number <= total_pages ->
+            page = Enum.at(instruction_set.pages(), submitted_page_number - 1)
+            attrs = %{instruction_pages_completed: submitted_page_number}
+
+            attrs =
+              if submitted_page_number == total_pages do
+                Map.put(attrs, :instructions_completed_at, now())
+              else
+                attrs
+              end
+
+            participation =
+              participation
+              |> Participation.changeset(attrs)
+              |> Repo.update!()
+
+            kind =
+              if submitted_page_number == total_pages,
+                do: :instructions_completed,
+                else: :instruction_page_advanced
+
+            ParticipantEvents.insert_instruction_progress_event!(
+              participation,
+              kind,
+              page.key(),
+              submitted_page_number
+            )
+
+            participation
+
+          true ->
+            Repo.rollback(:instruction_page_out_of_order)
+        end
+
+      :error ->
+        Repo.rollback(:unknown_instruction_set)
+    end
+  end
+
+  defp instructions_complete?(%Participation{instructions_key: nil}), do: true
+
+  defp instructions_complete?(%Participation{instructions_completed_at: completed_at}) do
+    not is_nil(completed_at)
+  end
 
   defp persist_response(nil, attrs, task_type) do
     case %Response{} |> Response.changeset(attrs, task_type) |> Repo.insert() do

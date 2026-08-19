@@ -30,6 +30,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       |> assign(:questions, [])
       |> assign(:active_question_key, nil)
       |> assign(:total_tasks, 0)
+      |> assign(:navigation_mode, :forward)
+      |> assign(:frontier_position, nil)
+      |> assign(:instruction_page, nil)
+      |> assign(:instruction_review_index, nil)
       |> load_launch(launch_token)
 
     {:ok, socket}
@@ -119,6 +123,44 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   def handle_event("answer", _params, socket), do: {:noreply, socket}
 
+  def handle_event("next_instruction", _params, %{assigns: %{state: :instructions}} = socket) do
+    page = socket.assigns.instruction_page
+
+    if socket.assigns.instruction_review_index < page.page_number do
+      {:noreply,
+       socket
+       |> assign(:instruction_review_index, socket.assigns.instruction_review_index + 1)
+       |> push_event("scroll_to_top", %{})}
+    else
+      case DataCollection.advance_instruction_page(
+             socket.assigns.participation,
+             page.page_number
+           ) do
+        {:ok, participation} ->
+          {:noreply,
+           socket
+           |> assign(:participation, participation)
+           |> load_instruction_or_tasks()
+           |> push_event("scroll_to_top", %{})}
+
+        {:error, reason} ->
+          {:noreply, assign_error(socket, reason)}
+      end
+    end
+  end
+
+  def handle_event("next_instruction", _params, socket), do: {:noreply, socket}
+
+  def handle_event("previous_instruction", _params, %{assigns: %{state: :instructions}} = socket) do
+    {:noreply,
+     update(socket, :instruction_review_index, fn
+       index when index > 1 -> index - 1
+       index -> index
+     end)}
+  end
+
+  def handle_event("previous_instruction", _params, socket), do: {:noreply, socket}
+
   def handle_event(
         "open_question",
         %{"position" => submitted_position, "question_key" => question_key},
@@ -140,7 +182,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     previous_position = socket.assigns.task.position - 1
 
     if previous_position > 0 do
-      {:noreply, load_task(socket, previous_position, :first_answered)}
+      {:noreply,
+       socket
+       |> assign(:navigation_mode, :review)
+       |> load_task(previous_position, :first_answered)}
     else
       {:noreply, socket}
     end
@@ -158,6 +203,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         data-participation-id={@participation && @participation.id}
         data-task-id={if(@state == :task, do: @task && @task.id)}
         data-question-key={if(@state == :task, do: @active_question_key)}
+        data-instructions-key={if(@state == :instructions, do: @participation.instructions_key)}
+        data-instruction-page-key={
+          if(@state == :instructions,
+            do: instruction_page_module(@instruction_page, @instruction_review_index).key()
+          )
+        }
+        data-instruction-page-number={if(@state == :instructions, do: @instruction_review_index)}
       >
         <div
           id="participant-shortcuts"
@@ -167,6 +219,11 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           <%= case @state do %>
             <% :consent -> %>
               <.consent_panel consent={@consent} launch_token={@launch_token} />
+            <% :instructions -> %>
+              <.instructions_panel
+                page={@instruction_page}
+                review_index={@instruction_review_index}
+              />
             <% :task -> %>
               <.task_panel
                 task={@task}
@@ -174,6 +231,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                 questions={@questions}
                 active_question_key={@active_question_key}
                 total_tasks={@total_tasks}
+                navigation_mode={@navigation_mode}
               />
             <% :completed -> %>
               <.status_panel
@@ -187,9 +245,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                   href={~p"/participate/#{@launch_token}/complete"}
                   rel="noreferrer"
                   data-shortcut="Enter,space"
+                  aria-keyshortcuts="Enter Space"
                   class="inline-flex items-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
                 >
-                  Continue to Prolific <.flow_shortcuts />
+                  <.flow_shortcuts /> Continue to Prolific
                 </a>
               </.status_panel>
             <% :unavailable -> %>
@@ -204,9 +263,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                   href="https://app.prolific.com/submissions"
                   rel="noreferrer"
                   data-shortcut="Enter,space"
+                  aria-keyshortcuts="Enter Space"
                   class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
                 >
-                  Open Prolific submissions <.flow_shortcuts />
+                  <.flow_shortcuts /> Open Prolific submissions
                 </a>
               </.status_panel>
             <% :error -> %>
@@ -221,9 +281,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                   href="https://app.prolific.com/submissions"
                   rel="noreferrer"
                   data-shortcut="Enter,space"
+                  aria-keyshortcuts="Enter Space"
                   class="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
                 >
-                  Open Prolific submissions <.flow_shortcuts />
+                  <.flow_shortcuts /> Open Prolific submissions
                 </a>
               </.status_panel>
             <% _loading -> %>
@@ -360,20 +421,42 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
               const taskId = this.el.dataset.taskId || null
               const questionKey = this.el.dataset.questionKey || null
-              const renderKey = `${taskId || ""}:${questionKey || ""}`
+              const instructionsKey = this.el.dataset.instructionsKey || null
+              const instructionPageKey = this.el.dataset.instructionPageKey || null
+              const instructionPageNumber = Number.parseInt(this.el.dataset.instructionPageNumber || "", 10) || null
+              const renderKey = `${taskId || ""}:${questionKey || ""}:${instructionsKey || ""}:${instructionPageKey || ""}`
               if (renderKey === this.lastRender) return
 
-              const reason = this.lastTaskId && taskId !== this.lastTaskId ? "task_changed" : "question_changed"
+              const reason = instructionsKey || this.lastInstructionsKey ? "instruction_changed" :
+                (this.lastTaskId && taskId !== this.lastTaskId ? "task_changed" : "question_changed")
               this.finishExposure(reason)
               const previousTaskId = this.lastTaskId
               this.lastRender = renderKey
               this.lastTaskId = taskId
+              this.lastInstructionsKey = instructionsKey
               if (taskId && taskId !== previousTaskId) this.emit("task_rendered", {}, {taskId, questionKey: null})
               if (taskId && questionKey) {
                 this.emit("question_rendered", {}, {taskId, questionKey})
                 this.exposure = {
+                  kind: "question",
                   taskId,
                   questionKey,
+                  measuredAt: performance.now(),
+                  totalMs: 0,
+                  visibleMs: 0,
+                  focusedMs: 0
+                }
+              }
+              if (instructionsKey && instructionPageKey && instructionPageNumber) {
+                const metadata = {
+                  instructions_key: instructionsKey,
+                  page_key: instructionPageKey,
+                  page_number: instructionPageNumber
+                }
+                this.emit("instruction_rendered", metadata, {taskId: null, questionKey: null})
+                this.exposure = {
+                  kind: "instruction",
+                  ...metadata,
                   measuredAt: performance.now(),
                   totalMs: 0,
                   visibleMs: 0,
@@ -395,11 +478,22 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
               this.accountExposure()
               const exposure = this.exposure
               this.exposure = null
-              this.emit("question_exposure", {
-                reason,
-                visible_ms: Math.round(exposure.visibleMs),
-                focused_ms: Math.round(exposure.focusedMs)
-              }, {...exposure, durationMs: Math.round(exposure.totalMs)})
+              if (exposure.kind === "instruction") {
+                this.emit("instruction_exposure", {
+                  instructions_key: exposure.instructions_key,
+                  page_key: exposure.page_key,
+                  page_number: exposure.page_number,
+                  reason,
+                  visible_ms: Math.round(exposure.visibleMs),
+                  focused_ms: Math.round(exposure.focusedMs)
+                }, {taskId: null, questionKey: null, durationMs: Math.round(exposure.totalMs)})
+              } else {
+                this.emit("question_exposure", {
+                  reason,
+                  visible_ms: Math.round(exposure.visibleMs),
+                  focused_ms: Math.round(exposure.focusedMs)
+                }, {...exposure, durationMs: Math.round(exposure.totalMs)})
+              }
             },
             emit(eventType, payload = {}, scope = {}) {
               if (!this.queueKey) return
@@ -496,17 +590,17 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     ~H"""
     <section
       id="consent-panel"
-      class="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20"
+      class="mx-auto max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:rounded-3xl"
     >
-      <div class="p-7 sm:p-11">
+      <div class="p-4 sm:p-11">
         {render_definition(@consent)}
       </div>
-      <div class="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 px-7 py-6 transition-colors dark:border-slate-700 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between sm:px-11">
+      <div class="flex flex-col-reverse gap-1.5 border-t border-slate-200 bg-slate-50 px-4 py-3 transition-colors dark:border-slate-700 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-11 sm:py-6">
         <.link
           id="decline-consent"
           href={~p"/participate/#{@launch_token}/decline"}
           method="delete"
-          class="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          class="inline-flex items-center justify-start gap-2 rounded-xl px-3 py-2.5 text-left font-medium text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white sm:px-4 sm:py-3"
         >
           I do not consent
         </.link>
@@ -516,11 +610,62 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           phx-click="accept_consent"
           phx-disable-with="Starting..."
           data-shortcut="Enter,space"
-          class="inline-flex items-center justify-center gap-3 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900"
+          aria-keyshortcuts="Enter Space"
+          class="inline-flex items-center justify-start gap-2.5 rounded-xl bg-indigo-700 px-3 py-2.5 text-left font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900 sm:gap-3 sm:px-5 sm:py-3"
         >
-          I consent and want to begin <.flow_shortcuts />
+          <.flow_shortcuts /> I consent and want to begin
         </button>
       </div>
+    </section>
+    """
+  end
+
+  attr :page, :map, required: true
+  attr :review_index, :integer, required: true
+
+  defp instructions_panel(assigns) do
+    page_module = Enum.at(assigns.page.pages, assigns.review_index - 1)
+
+    assigns =
+      assigns
+      |> assign(:page_module, page_module)
+      |> assign(:at_frontier?, assigns.review_index == assigns.page.page_number)
+
+    ~H"""
+    <section id="instructions-panel" class="mx-auto max-w-3xl space-y-3 sm:space-y-6">
+      <header id="instruction-progress" class="flex items-center justify-between gap-4">
+        <p class="text-xs font-bold uppercase tracking-[0.14em] text-indigo-700 dark:text-indigo-300 sm:text-sm">
+          Getting started
+        </p>
+        <p class="text-xs font-semibold tabular-nums text-slate-600 dark:text-slate-300 sm:text-sm">
+          Page {@review_index} / {@page.total_pages}
+        </p>
+      </header>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:rounded-3xl sm:p-11">
+        {render_definition(@page_module)}
+      </div>
+
+      <footer class="flex items-center justify-between gap-4">
+        <button
+          id="previous-instruction"
+          type="button"
+          phx-click="previous_instruction"
+          disabled={@review_index == 1}
+          class="inline-flex items-center gap-2 rounded-xl px-3 py-2 font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-30 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white sm:px-4 sm:py-2.5"
+        >
+          <.icon name="hero-arrow-left" class="size-4" /> Previous
+        </button>
+        <button
+          id="next-instruction"
+          type="button"
+          phx-click="next_instruction"
+          data-frontier={to_string(@at_frontier?)}
+          class="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 font-semibold text-white shadow-lg shadow-indigo-900/15 transition hover:-translate-y-0.5 hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:focus:ring-offset-slate-900 sm:px-5 sm:py-3"
+        >
+          Next <.icon name="hero-arrow-right" class="size-4" />
+        </button>
+      </footer>
     </section>
     """
   end
@@ -530,13 +675,19 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   attr :questions, :list, required: true
   attr :active_question_key, :string, default: nil
   attr :total_tasks, :integer, required: true
+  attr :navigation_mode, :atom, required: true
 
   defp task_panel(assigns) do
     progress = round((assigns.task.position - 1) / assigns.total_tasks * 100)
     assigns = assign(assigns, :progress, progress)
 
     ~H"""
-    <section id="task-panel" data-task-id={@task.id} class="space-y-6">
+    <section
+      id="task-panel"
+      data-task-id={@task.id}
+      data-navigation-mode={@navigation_mode}
+      class="space-y-3 sm:space-y-6"
+    >
       <header class="flex items-center gap-4" id="task-progress">
         <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
           <div
@@ -549,9 +700,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         </p>
       </header>
 
-      <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:p-9">
+      <div class="rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:rounded-3xl sm:p-9">
         <%= if @questionnaire.task_type() == :comparison do %>
-          <div class="grid gap-4 md:grid-cols-2" id="comparison-posts">
+          <div class="grid gap-2 md:grid-cols-2 md:gap-4" id="comparison-posts">
             <.post_card
               id="post-a"
               copy_target="post_a"
@@ -569,7 +720,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           <article
             id="single-post"
             data-copy-target="post"
-            class="rounded-2xl border border-slate-200 bg-slate-50 p-6 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:p-8"
+            class="rounded-xl border border-slate-200 bg-slate-50 p-3 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:rounded-2xl sm:p-8"
           >
             <p class="whitespace-pre-wrap break-words text-base leading-7 text-slate-800 dark:text-slate-100 sm:text-lg">
               {@task.stimuli["post"]["text"]}
@@ -577,7 +728,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           </article>
         <% end %>
 
-        <div id="questionnaire-accordion" class="mt-6 space-y-3">
+        <div id="questionnaire-accordion" class="mt-3 space-y-1.5 sm:mt-6 sm:space-y-3">
           <.question_item
             :for={question <- @questions}
             task={@task}
@@ -594,14 +745,15 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           type="button"
           phx-click="previous"
           data-shortcut="z"
+          aria-keyshortcuts="Z"
           disabled={@task.position == 1}
-          class="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          class="inline-flex items-center gap-2 rounded-xl px-3 py-2 font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white sm:px-4 sm:py-2.5"
         >
           <.shortcut_key>Z</.shortcut_key>
           Previous
         </button>
-        <p class="text-right text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">
-          Keyboard shortcuts submit immediately
+        <p class="hidden text-right text-xs leading-5 text-slate-500 dark:text-slate-400 sm:block sm:text-sm">
+          Click an answer or use its keyboard shortcut
         </p>
       </footer>
     </section>
@@ -645,10 +797,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         aria-expanded={to_string(@active?)}
         aria-controls={"question-#{@question.number}-region"}
         disabled={@locked? or @active?}
-        class="flex w-full items-center gap-4 px-5 py-4 text-left disabled:cursor-default sm:px-6"
+        class="flex w-full items-center gap-2.5 px-3 py-2.5 text-left disabled:cursor-default sm:gap-4 sm:px-6 sm:py-4"
       >
         <span class={[
-          "flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+          "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold sm:size-8 sm:text-sm",
           @active? && "bg-indigo-700 text-white dark:bg-indigo-500",
           not @active? && "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200"
         ]}>
@@ -662,10 +814,16 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             {@question.module.title()}
           </span>
         </span>
-        <span :if={@answered?} class="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+        <span
+          :if={@answered?}
+          class="hidden text-sm font-medium text-indigo-700 dark:text-indigo-300 sm:block"
+        >
           {answer_summary(@question.response.choice)}
         </span>
-        <span :if={@locked?} class="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <span
+          :if={@locked?}
+          class="hidden text-xs font-semibold uppercase tracking-wider text-slate-500 sm:block"
+        >
           Locked
         </span>
       </button>
@@ -678,7 +836,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             data-question-key={@question.key}
             role="region"
             aria-labelledby={"question-#{@question.number}-header"}
-            class="border-t border-indigo-200 px-5 py-6 dark:border-indigo-500/30 sm:px-6"
+            class="border-t border-indigo-200 px-3 py-3 dark:border-indigo-500/30 sm:px-6 sm:py-6"
           >
             <%= if @active? do %>
               {render_definition(@question.module)}
@@ -700,7 +858,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp comparison_actions(assigns) do
     ~H"""
-    <div id="comparison-answer-options" class="mt-5 grid gap-3 sm:grid-cols-3">
+    <div id="comparison-answer-options" class="mt-3 grid gap-1.5 sm:mt-5 sm:grid-cols-3 sm:gap-3">
       <.compact_choice
         id="answer-post-a"
         label="Post A"
@@ -712,7 +870,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       />
       <.compact_choice
         id="answer-equal"
-        label="Equal"
+        label="Very close / neither"
         shortcut="S"
         choice="equal"
         position={@task.position}
@@ -731,7 +889,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     </div>
     <div
       id="comparison-skip"
-      class="mt-6 flex justify-end border-t border-slate-200 pt-4 dark:border-slate-700"
+      class="mt-3 flex justify-end border-t border-slate-200 pt-2 dark:border-slate-700 sm:mt-6 sm:pt-4"
     >
       <.skip_choice
         position={@task.position}
@@ -747,7 +905,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp binary_actions(assigns) do
     ~H"""
-    <div id="binary-answer-options" class="mt-5 grid gap-3 sm:grid-cols-2">
+    <div id="binary-answer-options" class="mt-3 grid gap-1.5 sm:mt-5 sm:grid-cols-2 sm:gap-3">
       <.compact_choice
         id="answer-yes"
         label="Yes"
@@ -769,7 +927,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     </div>
     <div
       id="binary-skip"
-      class="mt-6 flex justify-end border-t border-slate-200 pt-4 dark:border-slate-700"
+      class="mt-3 flex justify-end border-t border-slate-200 pt-2 dark:border-slate-700 sm:mt-6 sm:pt-4"
     >
       <.skip_choice
         position={@task.position}
@@ -790,12 +948,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     <article
       id={@id}
       data-copy-target={@copy_target}
-      class="flex min-h-56 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-950/60"
+      class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition-colors dark:border-slate-700 dark:bg-slate-950/60 sm:rounded-2xl md:min-h-56"
     >
-      <span class="border-b border-slate-200 px-6 py-3 text-xs font-bold uppercase tracking-[0.14em] text-indigo-700 dark:border-slate-700 dark:text-indigo-300 sm:px-7">
+      <span class="border-b border-slate-200 px-3 py-2 text-xs font-bold uppercase tracking-[0.14em] text-indigo-700 dark:border-slate-700 dark:text-indigo-300 sm:px-7 sm:py-3">
         {@label}
       </span>
-      <span class="flex-1 whitespace-pre-wrap break-words p-6 text-base leading-7 text-slate-800 dark:text-slate-100 sm:p-7 sm:text-lg">
+      <span class="flex-1 whitespace-pre-wrap break-words p-3 text-base leading-6 text-slate-800 dark:text-slate-100 sm:p-7 sm:text-lg sm:leading-7">
         {@text}
       </span>
     </article>
@@ -820,17 +978,18 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       phx-value-position={@position}
       phx-value-question_key={@question_key}
       data-shortcut={String.downcase(@shortcut)}
+      aria-keyshortcuts={@shortcut}
       aria-pressed={to_string(@selected)}
       class={[
-        "inline-flex items-center justify-between gap-3 rounded-xl border px-5 py-3.5 font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900",
+        "inline-flex items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-left font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 sm:gap-3 sm:px-5 sm:py-3.5",
         @selected &&
           "border-indigo-600 bg-indigo-700 text-white dark:border-indigo-400 dark:bg-indigo-500/30",
         not @selected &&
           "border-slate-300 bg-white text-slate-800 hover:border-indigo-400 hover:bg-indigo-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-indigo-400 dark:hover:bg-indigo-500/15 dark:focus:ring-offset-slate-900"
       ]}
     >
-      {@label}
       <.shortcut_key>{@shortcut}</.shortcut_key>
+      {@label}
     </button>
     """
   end
@@ -849,6 +1008,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       phx-value-position={@position}
       phx-value-question_key={@question_key}
       data-shortcut="x"
+      aria-keyshortcuts="X"
       aria-pressed={to_string(@selected)}
       class={[
         "inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-indigo-500",
@@ -859,8 +1019,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         )
       ]}
     >
-      Skip this task
       <.shortcut_key>X</.shortcut_key>
+      Skip this task
     </button>
     """
   end
@@ -875,16 +1035,16 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     ~H"""
     <section
       id={@id}
-      class="mx-auto max-w-xl rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:p-12"
+      class="mx-auto max-w-xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:rounded-3xl sm:p-12"
     >
       <p class="text-sm font-semibold uppercase tracking-[0.16em] text-indigo-700 dark:text-indigo-300">
         {@eyebrow}
       </p>
-      <h1 class="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+      <h1 class="mt-3 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
         {@title}
       </h1>
       <p class="mt-5 leading-7 text-slate-600 dark:text-slate-300">{@message}</p>
-      <div class="mt-8">{render_slot(@inner_block)}</div>
+      <div class="mt-6 sm:mt-8">{render_slot(@inner_block)}</div>
     </section>
     """
   end
@@ -893,7 +1053,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp shortcut_key(assigns) do
     ~H"""
-    <kbd class="inline-flex min-w-7 items-center justify-center rounded-md border border-current/20 bg-white/70 px-1.5 py-0.5 font-mono text-xs font-bold leading-5 text-current shadow-sm dark:bg-slate-950/50">
+    <kbd
+      aria-hidden="true"
+      class="inline-flex min-w-5 items-center justify-center rounded border border-slate-600 bg-white px-1 font-mono text-[10px] font-bold leading-4 text-slate-950 shadow-[0_1px_0_#475569] dark:border-slate-300 dark:bg-slate-950 dark:text-white dark:shadow-[0_1px_0_#cbd5e1]"
+    >
       {render_slot(@inner_block)}
     </kbd>
     """
@@ -901,9 +1064,9 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp flow_shortcuts(assigns) do
     ~H"""
-    <span class="inline-flex items-center gap-1.5">
+    <span class="inline-flex shrink-0 items-center gap-1">
       <.shortcut_key>Enter</.shortcut_key>
-      <span class="text-xs font-medium opacity-70">or</span>
+      <span class="text-[10px] font-medium opacity-70">or</span>
       <.shortcut_key>Space</.shortcut_key>
     </span>
     """
@@ -945,7 +1108,32 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   end
 
   defp load_participation(socket, participation) do
-    socket = assign(socket, :participation, participation)
+    socket
+    |> assign(:participation, participation)
+    |> load_instruction_or_tasks()
+  end
+
+  defp load_instruction_or_tasks(socket) do
+    participation = socket.assigns.participation
+
+    case DataCollection.instruction_page(participation) do
+      {:ok, :complete} -> load_tasks(socket)
+      {:ok, page} -> load_instruction_page(socket, participation, page)
+      {:error, reason} -> assign_error(socket, reason)
+    end
+  end
+
+  defp load_instruction_page(socket, _participation, page) do
+    instruction_page = Map.put(page, :pages, page.instruction_set.pages())
+
+    socket
+    |> assign(:instruction_page, instruction_page)
+    |> assign(:instruction_review_index, page.page_number)
+    |> assign(:state, :instructions)
+  end
+
+  defp load_tasks(socket) do
+    participation = socket.assigns.participation
 
     case DataCollection.next_incomplete_task(participation) do
       nil ->
@@ -955,7 +1143,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         end
 
       task ->
-        load_task(socket, task.position)
+        socket
+        |> assign(:navigation_mode, :forward)
+        |> assign(:frontier_position, task.position)
+        |> load_task(task.position)
     end
   end
 
@@ -977,6 +1168,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     end
   end
 
+  defp after_answer(%{assigns: %{navigation_mode: :review}} = socket) do
+    case DataCollection.task_page(socket.assigns.participation, socket.assigns.task.position) do
+      {:ok, page} -> advance_review(socket, page)
+      {:error, reason} -> {:noreply, assign_error(socket, reason)}
+    end
+  end
+
   defp after_answer(socket) do
     case DataCollection.task_page(socket.assigns.participation, socket.assigns.task.position) do
       {:ok, %{complete?: false} = page} ->
@@ -984,9 +1182,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
       {:ok, %{complete?: true}} ->
         if socket.assigns.task.position < socket.assigns.total_tasks do
+          next_position = socket.assigns.task.position + 1
+
           {:noreply,
            socket
-           |> load_task(socket.assigns.task.position + 1)
+           |> assign(:frontier_position, next_position)
+           |> load_task(next_position)
            |> push_event("scroll_to_top", %{})}
         else
           complete_and_redirect(socket)
@@ -994,6 +1195,31 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
       {:error, reason} ->
         {:noreply, assign_error(socket, reason)}
+    end
+  end
+
+  defp advance_review(socket, page) do
+    current_index =
+      Enum.find_index(page.questions, &(&1.key == socket.assigns.active_question_key))
+
+    next_question = current_index && Enum.at(page.questions, current_index + 1)
+
+    cond do
+      next_question ->
+        {:noreply, assign_page(socket, page, next_question.key)}
+
+      socket.assigns.task.position + 1 < socket.assigns.frontier_position ->
+        {:noreply,
+         socket
+         |> load_task(socket.assigns.task.position + 1, :first_answered)
+         |> push_event("scroll_to_top", %{})}
+
+      true ->
+        {:noreply,
+         socket
+         |> assign(:navigation_mode, :forward)
+         |> load_task(socket.assigns.frontier_position)
+         |> push_event("scroll_to_top", %{})}
     end
   end
 
@@ -1028,6 +1254,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     end
   end
 
+  defp instruction_page_module(page, review_index) do
+    Enum.at(page.pages, review_index - 1)
+  end
+
   defp question_by_key(questions, key), do: Enum.find(questions, &(&1.key == key))
 
   defp question_state(true, _answered?), do: "active"
@@ -1036,7 +1266,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp answer_summary(:post_a), do: "Post A"
   defp answer_summary(:post_b), do: "Post B"
-  defp answer_summary(:equal), do: "Equal"
+  defp answer_summary(:equal), do: "Very close / neither"
   defp answer_summary(:yes), do: "Yes"
   defp answer_summary(:no), do: "No"
   defp answer_summary(:skip), do: "Skipped"

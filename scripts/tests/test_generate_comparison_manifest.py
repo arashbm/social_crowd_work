@@ -60,9 +60,11 @@ class GenerateComparisonManifestTest(unittest.TestCase):
 
         runs = manifest["conditions"][0]["runs"]
         self.assertEqual([len(run["tasks"]) for run in runs], [40, 5])
+        self.assertEqual(manifest["format_version"], "3")
+        self.assertNotIn("instructions_key", manifest["conditions"][0])
 
         variants = manifest["conditions"][0]["variants"]
-        self.assertEqual(variants["generator_version"], "2")
+        self.assertEqual(variants["generator_version"], "3")
         self.assertEqual(variants["pairs_per_full_run"], 40)
         self.assertEqual(variants["questionnaire_key"], "anxiety-comparison.v2")
         self.assertNotIn("tasks_per_full_run", variants)
@@ -83,6 +85,27 @@ class GenerateComparisonManifestTest(unittest.TestCase):
                 emitted_pairs.add(tuple(sorted((left, right))))
 
         self.assertEqual(emitted_pairs, set(pairs))
+
+    def test_manifest_includes_instructions_key_when_supplied(self) -> None:
+        posts = [{"id": index, "text": f"Post {index}"} for index in range(2)]
+        batches = optimize_batches([(0, 1)], random.Random(4), 1, 0)
+
+        manifest = build_manifest(
+            posts,
+            batches,
+            "comparison-example-v1",
+            "comparison-example-v1",
+            "anxiety-comparison.v2",
+            4,
+            1,
+            random.Random(4),
+            "participant-instructions.v1",
+        )
+
+        self.assertEqual(
+            manifest["conditions"][0]["instructions_key"],
+            "participant-instructions.v1",
+        )
 
     def test_reads_jsonl_and_preserves_complete_post_objects(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -161,6 +184,8 @@ class GenerateComparisonManifestTest(unittest.TestCase):
                         "comparison-example-v1",
                         "--questionnaire-key",
                         "anxiety-comparison.v2",
+                        "--instructions-key",
+                        "participant-instructions.v1",
                         "--seed",
                         "7",
                         "--restarts",
@@ -172,6 +197,11 @@ class GenerateComparisonManifestTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertIn("4 unique pairs as 4 tasks", stderr.getvalue())
+            manifest = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["conditions"][0]["instructions_key"],
+                "participant-instructions.v1",
+            )
 
 
 if __name__ == "__main__":

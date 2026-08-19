@@ -24,7 +24,7 @@ defmodule SocialCrowdWork.Fixtures do
     defaults = %{
       original_filename: "batch-#{unique}.json",
       source_sha256: sha256(unique),
-      format_version: "2"
+      format_version: "3"
     }
 
     {:ok, import_batch} = Experiments.create_import_batch(Map.merge(defaults, attrs))

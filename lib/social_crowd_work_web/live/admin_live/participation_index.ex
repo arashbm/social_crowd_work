@@ -68,7 +68,10 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationIndex do
                 </p><p class="mt-1 text-xs text-slate-500">{row.participation.run.external_key}</p>
               </td>
               <td class="px-5 py-4 tabular-nums text-slate-600 dark:text-slate-300">
-                {row.progress.answered} / {row.progress.expected} questions
+                <p>{row.progress.answered} / {row.progress.expected} questions</p>
+                <p class="mt-1 text-xs text-slate-500">
+                  {row.participation.instruction_pages_completed} instruction pages
+                </p>
               </td>
               <td class="px-5 py-4"><.status_badge status={row.participation.status} /></td>
               <td class="px-5 py-4 text-xs text-slate-500">

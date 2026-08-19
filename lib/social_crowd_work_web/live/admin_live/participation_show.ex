@@ -95,6 +95,18 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
                 {Calendar.strftime(@participation.consented_at, "%Y-%m-%d %H:%M UTC")}
               </dd>
             </div>
+            <div id="participation-instructions-key">
+              <dt class="text-slate-500">Instruction snapshot</dt>
+              <dd class="mt-1 font-mono text-xs">{@participation.instructions_key || "None"}</dd>
+            </div>
+            <div id="participation-instruction-progress">
+              <dt class="text-slate-500">Instruction progress</dt>
+              <dd class="mt-1 font-semibold">{@participation.instruction_pages_completed} pages</dd>
+            </div>
+            <div id="participation-instructions-completed-at" class="sm:col-span-2">
+              <dt class="text-slate-500">Instructions completed</dt>
+              <dd class="mt-1">{format_timestamp(@participation.instructions_completed_at)}</dd>
+            </div>
           </dl>
         </div>
       </section>
@@ -118,7 +130,7 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
             <%= if row.response do %>
               <div class="text-right">
                 <p class="font-semibold capitalize">
-                  {row.response.choice |> Atom.to_string() |> String.replace("_", " ")}
+                  {display_choice(row.response.choice)}
                 </p><p class="mt-1 text-xs text-slate-500">
                   {Calendar.strftime(row.response.answered_at, "%Y-%m-%d %H:%M:%S")}
                 </p>
@@ -132,4 +144,10 @@ defmodule SocialCrowdWorkWeb.AdminLive.ParticipationShow do
     </Layouts.app>
     """
   end
+
+  defp display_choice(:equal), do: "Very close / neither (equal)"
+  defp display_choice(choice), do: choice |> Atom.to_string() |> String.replace("_", " ")
+
+  defp format_timestamp(nil), do: "Not completed"
+  defp format_timestamp(timestamp), do: Calendar.strftime(timestamp, "%Y-%m-%d %H:%M UTC")
 end

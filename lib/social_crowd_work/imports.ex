@@ -120,6 +120,7 @@ defmodule SocialCrowdWork.Imports do
           key: condition_plan.key,
           task_type: condition_plan.task_type,
           variants: condition_plan.variants,
+          instructions_key: condition_plan.instructions_key,
           status: :draft
         }
 
@@ -168,10 +169,23 @@ defmodule SocialCrowdWork.Imports do
         ]
       end
 
-    if plan.variants == condition.variants do
+    errors =
+      if plan.variants == condition.variants do
+        errors
+      else
+        [error("conditions[#{index}].variants", "do not match the existing condition") | errors]
+      end
+
+    if plan.instructions_key == condition.instructions_key do
       errors
     else
-      [error("conditions[#{index}].variants", "do not match the existing condition") | errors]
+      [
+        error(
+          "conditions[#{index}].instructions_key",
+          "does not match the existing condition"
+        )
+        | errors
+      ]
     end
   end
 

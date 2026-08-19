@@ -46,6 +46,37 @@ defmodule SocialCrowdWorkWeb.AdminLive.RunShow do
         />
       </section>
 
+      <section
+        id="run-instruction-progress"
+        class="mb-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+      >
+        <h2 class="font-semibold text-slate-950 dark:text-white">Instructions</h2>
+        <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-3">
+          <div>
+            <dt class="text-slate-500">Condition instruction set</dt>
+            <dd class="mt-1 font-mono text-xs">{@run.condition.instructions_key || "None"}</dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">Participation snapshot</dt>
+            <dd class="mt-1 font-mono text-xs">
+              {if(@run.participation,
+                do: @run.participation.instructions_key || "None",
+                else: "Unassigned"
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-slate-500">Progress</dt>
+            <dd class="mt-1 font-medium">
+              {if(@run.participation,
+                do: "#{@run.participation.instruction_pages_completed} pages",
+                else: "Unassigned"
+              )}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       <div id="run-tasks" phx-update="stream" class="space-y-5">
         <article
           :for={{id, task} <- @streams.tasks}

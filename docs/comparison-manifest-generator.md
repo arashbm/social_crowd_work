@@ -11,10 +11,11 @@ python3 scripts/generate_comparison_manifest.py posts.jsonl manifest.json \
   --comparisons 1000 \
   --condition-key psychosocial-comparisons-v1 \
   --questionnaire-key psychosocial-comparisons.v1 \
+  --instructions-key participant-instructions.v1 \
   --seed 20260813
 ```
 
-`--questionnaire-key` is required and is written to every task and the generator metadata. Manifest metadata also records generator version `2` and `pairs_per_full_run` as `40`.
+`--questionnaire-key` is required and is written to every task and the generator metadata. `--instructions-key` is optional; when supplied, it is written to the condition as `instructions_key`, and when omitted that field is not emitted. The output uses manifest format version `3`. Manifest metadata also records generator version `3` and `pairs_per_full_run` as `40`.
 
 If `--seed` is omitted, the script generates one and prints it to standard error. Reusing the same input order, arguments, Python version, and seed reproduces the manifest. Increase `--restarts` or `--swap-attempts` to spend more time reducing post replication. Use `--force` to replace an existing output file.
 

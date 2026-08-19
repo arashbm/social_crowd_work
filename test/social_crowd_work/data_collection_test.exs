@@ -2,8 +2,16 @@ defmodule SocialCrowdWork.DataCollectionTest do
   use SocialCrowdWork.DataCase, async: false
 
   alias SocialCrowdWork.DataCollection
-  alias SocialCrowdWork.DataCollection.{ParticipantLaunch, Participation, Response}
+
+  alias SocialCrowdWork.DataCollection.{
+    ParticipantEvent,
+    ParticipantLaunch,
+    Participation,
+    Response
+  }
+
   alias SocialCrowdWork.Experiments.Condition
+  alias SocialCrowdWork.Repo
 
   import SocialCrowdWork.Fixtures
 
@@ -211,6 +219,191 @@ defmodule SocialCrowdWork.DataCollectionTest do
 
       assert Enum.uniq(participation_ids) |> length() == 1
       assert Repo.aggregate(Participation, :count) == 1
+    end
+  end
+
+  describe "instruction progression" do
+    setup do
+      original_modules =
+        Application.get_env(:social_crowd_work, :instruction_set_modules, [])
+
+      Application.put_env(
+        :social_crowd_work,
+        :instruction_set_modules,
+        original_modules ++ [SocialCrowdWork.TwoPageInstructionSet]
+      )
+
+      on_exit(fn ->
+        Application.put_env(
+          :social_crowd_work,
+          :instruction_set_modules,
+          original_modules
+        )
+      end)
+    end
+
+    test "assignment snapshots the condition instruction set and initializes progress" do
+      condition =
+        condition_fixture(:comparison, %{instructions_key: "two-page-instructions.v1"})
+
+      run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+
+      assert participation.instructions_key == "two-page-instructions.v1"
+      assert participation.instruction_pages_completed == 0
+      assert participation.instructions_completed_at == nil
+
+      Condition
+      |> where([stored], stored.id == ^condition.id)
+      |> Repo.update_all(set: [instructions_key: nil])
+
+      assert {:ok, resumed} =
+               DataCollection.resume_participation(condition, %{
+                 prolific_participant_id: participation.prolific_participant_id,
+                 prolific_study_id: participation.prolific_study_id,
+                 prolific_session_id: participation.prolific_session_id
+               })
+
+      assert resumed.instructions_key == "two-page-instructions.v1"
+    end
+
+    test "advances sequentially, rejects skips, and accepts acknowledged stale pages" do
+      condition =
+        condition_fixture(:comparison, %{instructions_key: "two-page-instructions.v1"})
+
+      run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+
+      assert {:ok,
+              %{
+                instruction_set: SocialCrowdWork.TwoPageInstructionSet,
+                page: SocialCrowdWork.TestInstructionPage,
+                page_number: 1,
+                total_pages: 2
+              }} = DataCollection.instruction_page(participation)
+
+      assert {:error, :instruction_page_out_of_order} =
+               DataCollection.advance_instruction_page(participation, 2)
+
+      assert {:ok, first_advance} =
+               DataCollection.advance_instruction_page(participation, 1)
+
+      assert first_advance.instruction_pages_completed == 1
+      assert first_advance.instructions_completed_at == nil
+
+      assert {:ok, stale_advance} =
+               DataCollection.advance_instruction_page(participation, 1)
+
+      assert stale_advance.instruction_pages_completed == 1
+
+      assert {:ok,
+              %{
+                page: SocialCrowdWork.SecondTestInstructionPage,
+                page_number: 2,
+                total_pages: 2
+              }} = DataCollection.instruction_page(participation)
+
+      assert {:ok, completed_instructions} =
+               DataCollection.advance_instruction_page(participation, 2)
+
+      assert completed_instructions.instruction_pages_completed == 2
+      assert completed_instructions.instructions_completed_at
+      assert {:ok, :complete} = DataCollection.instruction_page(participation)
+
+      assert {:ok, stale_after_completion} =
+               DataCollection.advance_instruction_page(participation, 1)
+
+      assert stale_after_completion.instruction_pages_completed == 2
+
+      assert stale_after_completion.instructions_completed_at ==
+               completed_instructions.instructions_completed_at
+
+      events = Repo.all(ParticipantEvent)
+
+      assert Enum.sort(Enum.map(events, & &1.kind)) ==
+               [:instruction_page_advanced, :instructions_completed]
+
+      assert Enum.any?(events, fn event ->
+               event.metadata == %{
+                 "instructions_key" => "two-page-instructions.v1",
+                 "page_key" => "test-instructions-introduction.v1",
+                 "page_number" => 1
+               }
+             end)
+    end
+
+    test "allows task flow without instructions and enforces required instructions" do
+      condition_without_instructions = condition_fixture()
+      run_without_instructions = run_fixture(condition_without_instructions)
+      assert {:ok, participation_without_instructions} = assign(condition_without_instructions)
+      [task_without_instructions] = run_without_instructions.tasks
+
+      assert {:ok, :complete} =
+               DataCollection.instruction_page(participation_without_instructions)
+
+      assert {:error, :instruction_page_out_of_order} =
+               DataCollection.advance_instruction_page(participation_without_instructions, 1)
+
+      assert {:ok, _response} =
+               DataCollection.record_response(
+                 participation_without_instructions,
+                 task_without_instructions.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+
+      condition =
+        condition_fixture(:comparison, %{instructions_key: "two-page-instructions.v1"})
+
+      run = run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+      [task] = run.tasks
+
+      assert {:error, :instructions_incomplete} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+
+      assert {:ok, _participation} =
+               DataCollection.advance_instruction_page(participation, 1)
+
+      assert {:error, :instructions_incomplete} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+
+      assert {:ok, _participation} =
+               DataCollection.advance_instruction_page(participation, 2)
+
+      assert {:ok, _response} =
+               DataCollection.record_response(
+                 participation,
+                 task.id,
+                 "test-comparison.v1",
+                 :skip
+               )
+    end
+
+    test "returns an error for a retired instruction definition" do
+      condition = condition_fixture()
+      run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+
+      Participation
+      |> where([stored], stored.id == ^participation.id)
+      |> Repo.update_all(set: [instructions_key: "retired-instructions.v1"])
+
+      assert {:error, :unknown_instruction_set} =
+               DataCollection.instruction_page(participation)
+
+      assert {:error, :unknown_instruction_set} =
+               DataCollection.advance_instruction_page(participation, 1)
     end
   end
 

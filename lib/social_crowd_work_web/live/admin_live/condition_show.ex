@@ -205,6 +205,11 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
                   <code class="break-all text-xs">{Jason.encode!(@summary.condition.variants)}</code>
                 </dd>
               </div>
+              <div id="condition-instructions-key">
+                <dt class="text-slate-500">Instruction set</dt><dd class="mt-1 font-medium">
+                  <code class="text-xs">{@summary.condition.instructions_key || "None"}</code>
+                </dd>
+              </div>
               <div>
                 <dt class="text-slate-500">Capacity</dt><dd class="mt-1 font-medium">
                   {@summary.total_runs} total / {@summary.available_runs} available

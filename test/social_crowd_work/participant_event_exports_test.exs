@@ -9,7 +9,7 @@ defmodule SocialCrowdWork.ParticipantEventExportsTest do
   alias SocialCrowdWork.Repo
 
   test "exports one raw event per line with joined context and all event fields" do
-    condition = condition_fixture()
+    condition = condition_fixture(:comparison, %{instructions_key: "test-instructions.v1"})
     run = run_fixture(condition)
     attrs = participation_attrs(condition)
 
@@ -39,13 +39,17 @@ defmodule SocialCrowdWork.ParticipantEventExportsTest do
     assert {:ok, [line]} = collect_jsonl(condition_key: condition.key)
     record = Jason.decode!(line)
 
-    assert record["schema_version"] == "1"
+    assert record["schema_version"] == "2"
     assert record["condition"]["key"] == condition.key
+    assert record["condition"]["instructions_key"] == "test-instructions.v1"
     assert record["run"]["key"] == run.external_key
     assert record["participation"]["id"] == participation.id
     assert record["participation"]["prolific_participant_id"] == attrs.prolific_participant_id
     assert record["participation"]["prolific_study_id"] == attrs.prolific_study_id
     assert record["participation"]["prolific_session_id"] == attrs.prolific_session_id
+    assert record["participation"]["instructions_key"] == "test-instructions.v1"
+    assert record["participation"]["instruction_pages_completed"] == 0
+    assert record["participation"]["instructions_completed_at"] == nil
     assert record["task"]["id"] == task.id
 
     assert record["event"] == %{

@@ -27,7 +27,7 @@ defmodule SocialCrowdWork.Experiments do
 
   def configure_condition(%Condition{} = condition, attrs) do
     condition
-    |> Condition.changeset(attrs)
+    |> Condition.operational_changeset(attrs)
     |> Repo.update()
   end
 

@@ -13,7 +13,7 @@ defmodule SocialCrowdWork.Exports do
   alias SocialCrowdWork.Questionnaires
   alias SocialCrowdWork.Repo
 
-  @schema_version "2"
+  @schema_version "3"
 
   def reduce_jsonl(initial_accumulator, reducer, opts \\ []) when is_function(reducer, 2) do
     query = export_query(opts)
@@ -94,7 +94,8 @@ defmodule SocialCrowdWork.Exports do
         id: condition.id,
         key: condition.key,
         task_type: condition.task_type,
-        variants: condition.variants
+        variants: condition.variants,
+        instructions_key: condition.instructions_key
       },
       import_batch: %{
         id: import_batch.id,
@@ -123,6 +124,9 @@ defmodule SocialCrowdWork.Exports do
         status: participation.status,
         consent_key: participation.consent_key,
         consented_at: timestamp(participation.consented_at),
+        instructions_key: participation.instructions_key,
+        instruction_pages_completed: participation.instruction_pages_completed,
+        instructions_completed_at: timestamp(participation.instructions_completed_at),
         started_at: timestamp(participation.started_at),
         completed_at: timestamp(participation.completed_at)
       },

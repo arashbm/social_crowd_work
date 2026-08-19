@@ -1,7 +1,7 @@
 defmodule SocialCrowdWorkWeb.AdminLive.Definitions do
   use SocialCrowdWorkWeb, :live_view
 
-  alias SocialCrowdWork.{Consents, Prompts, Questionnaires}
+  alias SocialCrowdWork.{Consents, Instructions, Prompts, Questionnaires}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,6 +10,7 @@ defmodule SocialCrowdWorkWeb.AdminLive.Definitions do
      |> assign(:page_title, "Definitions")
      |> assign(:prompts, Prompts.all())
      |> assign(:questionnaires, Questionnaires.all())
+     |> assign(:instruction_sets, Instructions.all())
      |> assign(:consents, Consents.all())}
   end
 
@@ -19,10 +20,39 @@ defmodule SocialCrowdWorkWeb.AdminLive.Definitions do
     <Layouts.app flash={@flash} current_scope={@current_scope} variant={:admin}>
       <.admin_header
         title="Definitions"
-        description="Read-only catalog of code-defined, versioned questionnaires, prompts, and consent documents."
+        description="Read-only catalog of code-defined, versioned instructions, questionnaires, prompts, and consent documents."
       />
 
       <section>
+        <h2 class="mb-4 text-lg font-semibold text-slate-950 dark:text-white">Instruction sets</h2>
+        <.admin_empty
+          :if={@instruction_sets == []}
+          id="instruction-sets-empty"
+          title="No production instruction sets"
+          message="Add a versioned instruction set before assigning it to a condition."
+        />
+        <div id="instruction-set-definitions" class="grid gap-5 xl:grid-cols-2">
+          <article
+            :for={instruction_set <- @instruction_sets}
+            id={"instruction-set-#{instruction_set.key()}"}
+            class="rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+          >
+            <code class="text-sm font-bold text-indigo-700 dark:text-indigo-300">{instruction_set.key()}</code>
+            <ol class="mt-5 space-y-3">
+              <li
+                :for={{page, number} <- Enum.with_index(instruction_set.pages(), 1)}
+                id={"instruction-set-#{instruction_set.key()}-page-#{number}"}
+                class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/60"
+              >
+                <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">{number}</span>
+                <code class="text-xs font-semibold">{page.key()}</code>
+              </li>
+            </ol>
+          </article>
+        </div>
+      </section>
+
+      <section class="mt-9">
         <h2 class="mb-4 text-lg font-semibold text-slate-950 dark:text-white">Questionnaires</h2>
         <.admin_empty
           :if={@questionnaires == []}

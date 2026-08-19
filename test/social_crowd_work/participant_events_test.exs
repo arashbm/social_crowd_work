@@ -142,6 +142,75 @@ defmodule SocialCrowdWork.ParticipantEventsTest do
     end
   end
 
+  describe "instruction events" do
+    test "accepts strict render and exposure metadata and rejects server progress kinds" do
+      condition = condition_fixture(:comparison, %{instructions_key: "test-instructions.v1"})
+      run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+
+      identity = %{
+        "instructions_key" => "test-instructions.v1",
+        "page_key" => "test-instructions-introduction.v1",
+        "page_number" => 1
+      }
+
+      rendered = %{
+        "event_id" => Ecto.UUID.generate(),
+        "kind" => "instruction_rendered",
+        "metadata" => identity
+      }
+
+      exposure = %{
+        "event_id" => Ecto.UUID.generate(),
+        "kind" => "instruction_exposure",
+        "duration_ms" => 500,
+        "metadata" =>
+          Map.merge(identity, %{
+            "visible_ms" => 400,
+            "focused_ms" => 350,
+            "reason" => "page_unloaded"
+          })
+      }
+
+      assert {:ok, %{inserted: 2}} = ParticipantEvents.ingest(participation, [rendered, exposure])
+
+      assert {:error, {:invalid_event, 0, %{metadata: [_message]}}} =
+               ParticipantEvents.ingest(participation, [
+                 put_in(rendered, ["metadata", "page_number"], 2)
+               ])
+
+      assert {:error, {:invalid_event, 0, %{kind: [_message]}}} =
+               ParticipantEvents.ingest(participation, [
+                 %{rendered | "kind" => "instruction_page_advanced"}
+               ])
+    end
+
+    test "server progress helper appends raw page identity without calculating progress" do
+      condition = condition_fixture(:comparison, %{instructions_key: "test-instructions.v1"})
+      run_fixture(condition)
+      assert {:ok, participation} = assign(condition)
+
+      event =
+        ParticipantEvents.insert_instruction_progress_event!(
+          participation,
+          :instruction_page_advanced,
+          "test-instructions-introduction.v1",
+          1
+        )
+
+      assert event.kind == :instruction_page_advanced
+
+      assert event.metadata == %{
+               "instructions_key" => "test-instructions.v1",
+               "page_key" => "test-instructions-introduction.v1",
+               "page_number" => 1
+             }
+
+      assert Repo.get!(DataCollection.Participation, participation.id).instruction_pages_completed ==
+               0
+    end
+  end
+
   defp participant_and_task do
     condition = condition_fixture()
     run = run_fixture(condition)
@@ -154,5 +223,13 @@ defmodule SocialCrowdWork.ParticipantEventsTest do
              )
 
     {participation, hd(run.tasks)}
+  end
+
+  defp assign(condition) do
+    DataCollection.consent_and_assign_run(
+      condition,
+      participation_attrs(condition),
+      "test-consent.v1"
+    )
   end
 end

@@ -52,6 +52,7 @@ config :social_crowd_work,
   ],
   questionnaire_modules: [SocialCrowdWork.DevBinaryQuestionQuestionnaire],
   consent_modules: [SocialCrowdWork.DevConsent],
+  instruction_set_modules: [SocialCrowdWork.DevInstructionSet],
   prolific_completion_url: "http://localhost:4000/dev/prolific-complete"
 
 # Do not include metadata nor timestamps in development logs

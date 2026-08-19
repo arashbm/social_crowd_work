@@ -11,7 +11,7 @@ defmodule SocialCrowdWork.ParticipantEventExports do
   alias SocialCrowdWork.Experiments.{Condition, Run, Task}
   alias SocialCrowdWork.Repo
 
-  @schema_version "1"
+  @schema_version "2"
 
   def reduce_jsonl(initial_accumulator, reducer, opts \\ []) when is_function(reducer, 2) do
     query = export_query(opts)
@@ -71,7 +71,8 @@ defmodule SocialCrowdWork.ParticipantEventExports do
         id: condition.id,
         key: condition.key,
         task_type: condition.task_type,
-        variants: condition.variants
+        variants: condition.variants,
+        instructions_key: condition.instructions_key
       },
       run: %{
         id: run.id,
@@ -82,7 +83,10 @@ defmodule SocialCrowdWork.ParticipantEventExports do
         prolific_participant_id: participation.prolific_participant_id,
         prolific_study_id: participation.prolific_study_id,
         prolific_session_id: participation.prolific_session_id,
-        status: participation.status
+        status: participation.status,
+        instructions_key: participation.instructions_key,
+        instruction_pages_completed: participation.instruction_pages_completed,
+        instructions_completed_at: timestamp(participation.instructions_completed_at)
       },
       task: task_data(task),
       event: %{

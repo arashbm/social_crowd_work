@@ -1,5 +1,5 @@
 defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
-  use SocialCrowdWorkWeb.ConnCase, async: true
+  use SocialCrowdWorkWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import SocialCrowdWork.Fixtures
@@ -36,9 +36,16 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     refute has_element?(view, "#participant-telemetry[phx-update='ignore']")
     refute has_element?(view, "#participant-telemetry[data-participation-id]")
     assert has_element?(view, "#participant-theme-switch[aria-label='Color theme']")
-    assert has_element?(view, "#theme-system[data-phx-theme='system']")
-    assert has_element?(view, "#theme-light[data-phx-theme='light']")
-    assert has_element?(view, "#theme-dark[data-phx-theme='dark']")
+    assert has_element?(view, "#participant-toolbar #participant-theme-switch[role='radiogroup']")
+
+    assert has_element?(
+             view,
+             "#theme-system[role='radio'][aria-checked='true'][aria-label='Use system theme'][title='System theme'][data-phx-theme='system']"
+           )
+
+    assert has_element?(view, "#theme-light[role='radio'][aria-label='Use light theme']")
+    assert has_element?(view, "#theme-dark[role='radio'][aria-label='Use dark theme']")
+    refute has_element?(view, "#participant-toolbar[class~='absolute']")
     assert has_element?(view, "#decline-consent[data-method='delete']")
     assert Repo.aggregate(Participation, :count) == 0
     assert Repo.aggregate(ParticipantLaunch, :count) == 1
@@ -171,7 +178,25 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(view, "#question-1-region #answer-equal[data-shortcut='s']")
     assert has_element?(view, "#question-1-region #answer-post-b[data-shortcut='d']")
     assert has_element?(view, "#comparison-skip > #answer-skip[data-shortcut='x']")
-    assert has_element?(view, "#previous-task[data-shortcut='z'][disabled]")
+
+    assert has_element?(
+             view,
+             "#answer-post-a[aria-keyshortcuts='A'] > kbd:first-child[aria-hidden='true']"
+           )
+
+    assert has_element?(view, "#answer-equal", "Very close / neither")
+
+    assert has_element?(
+             view,
+             "#answer-skip[aria-keyshortcuts='X'] > kbd:first-child[aria-hidden='true']"
+           )
+
+    assert has_element?(
+             view,
+             "#previous-task[data-shortcut='z'][aria-keyshortcuts='Z'][disabled]"
+           )
+
+    assert has_element?(view, "#task-panel", "Click an answer or use its keyboard shortcut")
 
     participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
     assert participation.consent_key == "test-consent.v1"
@@ -274,6 +299,67 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(resumed, "#question-3[data-state='locked']")
   end
 
+  test "shows pending instructions after consent and resumes until the page is acknowledged", %{
+    conn: conn
+  } do
+    original_modules = Application.get_env(:social_crowd_work, :instruction_set_modules, [])
+
+    Application.put_env(
+      :social_crowd_work,
+      :instruction_set_modules,
+      original_modules ++ [SocialCrowdWork.TwoPageInstructionSet]
+    )
+
+    on_exit(fn ->
+      Application.put_env(:social_crowd_work, :instruction_set_modules, original_modules)
+    end)
+
+    condition = condition_fixture(:comparison, %{instructions_key: "two-page-instructions.v1"})
+    run_fixture(condition, %{tasks: [psychosocial_task()]})
+    attrs = participation_attrs(condition)
+    {_entry_conn, participant_path} = launch_study(conn, condition, attrs)
+    {:ok, view, _html} = live(recycle(conn), participant_path)
+
+    view |> element("#accept-consent") |> render_click()
+
+    assert has_element?(view, "#instructions-panel #test-instruction-page")
+    assert has_element?(view, "#instruction-progress", "Getting started")
+    assert has_element?(view, "#instruction-progress", "Page 1 / 2")
+    assert has_element?(view, "#previous-instruction[disabled]")
+    assert has_element?(view, "#next-instruction[data-frontier='true']")
+    refute has_element?(view, "#task-panel")
+
+    participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
+    assert participation.instruction_pages_completed == 0
+
+    view |> element("#next-instruction") |> render_click()
+    assert has_element?(view, "#instructions-panel #second-test-instruction-page")
+    assert has_element?(view, "#instruction-progress", "Page 2 / 2")
+
+    participation = Repo.get!(Participation, participation.id)
+    assert participation.instruction_pages_completed == 1
+    assert is_nil(participation.instructions_completed_at)
+
+    view |> element("#previous-instruction") |> render_click()
+    assert has_element?(view, "#instructions-panel #test-instruction-page")
+    assert has_element?(view, "#next-instruction[data-frontier='false']")
+    assert Repo.get!(Participation, participation.id).instruction_pages_completed == 1
+
+    {:ok, resumed, _html} = live(recycle(conn), participant_path)
+    assert has_element?(resumed, "#instructions-panel #second-test-instruction-page")
+
+    view |> element("#next-instruction") |> render_click()
+    assert has_element?(view, "#instructions-panel #second-test-instruction-page")
+    assert Repo.get!(Participation, participation.id).instruction_pages_completed == 1
+
+    view |> element("#next-instruction") |> render_click()
+    assert has_element?(view, "#task-panel[data-navigation-mode='forward']")
+
+    participation = Repo.get!(Participation, participation.id)
+    assert participation.instruction_pages_completed == 2
+    assert participation.instructions_completed_at
+  end
+
   test "finishing a questionnaire advances to the next pair and previous reopens question one", %{
     conn: conn
   } do
@@ -291,6 +377,76 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(view, "#task-progress", "1 / 2")
     assert has_element?(view, "#question-1[data-state='active']")
     assert has_element?(view, "#answer-post-a[aria-pressed='true']")
+  end
+
+  test "review answers traverse completed tasks and return to the incomplete frontier", %{
+    conn: conn
+  } do
+    condition = condition_fixture()
+
+    run_fixture(condition, %{
+      tasks: [psychosocial_task(1), psychosocial_task(2), psychosocial_task(3)]
+    })
+
+    attrs = participation_attrs(condition)
+    {:ok, view, _html} = enter_study(conn, condition, attrs)
+
+    view |> element("#accept-consent") |> render_click()
+    answer_three_questions(view)
+    answer_three_questions(view)
+    assert has_element?(view, "#task-progress", "3 / 3")
+
+    answer_event_count = Repo.aggregate(ParticipantEvent, :count)
+    view |> element("#previous-task") |> render_click()
+    assert has_element?(view, "#task-progress", "2 / 3")
+    view |> element("#previous-task") |> render_click()
+
+    assert has_element?(view, "#task-panel[data-navigation-mode='review']")
+    assert has_element?(view, "#task-progress", "1 / 3")
+    assert has_element?(view, "#question-1[data-state='active']")
+    assert has_element?(view, "#answer-post-a[aria-pressed='true']")
+
+    view |> element("#answer-post-a") |> render_click()
+    assert has_element?(view, "#question-2[data-state='active']")
+    assert has_element?(view, "#answer-post-a[aria-pressed='true']")
+
+    view |> element("#answer-post-a") |> render_click()
+    assert has_element?(view, "#question-3[data-state='active']")
+
+    view |> element("#answer-post-a") |> render_click()
+    assert has_element?(view, "#task-progress", "2 / 3")
+    assert has_element?(view, "#task-panel[data-navigation-mode='review']")
+    assert has_element?(view, "#question-1[data-state='active']")
+
+    answer_three_questions(view)
+    assert has_element?(view, "#task-progress", "3 / 3")
+    assert has_element?(view, "#task-panel[data-navigation-mode='forward']")
+    assert has_element?(view, "#question-1[data-state='active']")
+    assert Repo.aggregate(ParticipantEvent, :count) == answer_event_count
+  end
+
+  test "uses the participant-facing equal label without changing its stored value", %{conn: conn} do
+    condition = condition_fixture()
+    run_fixture(condition, %{tasks: [psychosocial_task()]})
+    attrs = participation_attrs(condition)
+    {:ok, view, _html} = enter_study(conn, condition, attrs)
+
+    view |> element("#accept-consent") |> render_click()
+    view |> element("#answer-equal") |> render_click()
+
+    assert has_element?(view, "#question-1-header", "Very close / neither")
+
+    participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
+    task = SocialCrowdWork.Experiments.get_task_by_position(participation.run_id, 1)
+
+    response =
+      Repo.get_by!(Response,
+        participation_id: participation.id,
+        task_id: task.id,
+        question_key: "worry.v1"
+      )
+
+    assert response.choice == :equal
   end
 
   test "the last questionnaire answer completes and redirects", %{conn: conn} do

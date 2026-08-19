@@ -43,7 +43,12 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
   end
 
   test "condition configuration and lifecycle changes are audited", %{conn: conn} do
-    condition = condition_fixture(:comparison, %{status: :draft})
+    condition =
+      condition_fixture(:comparison, %{
+        status: :draft,
+        instructions_key: "test-instructions.v1"
+      })
+
     run_fixture(condition)
     {:ok, view, _html} = live(conn, ~p"/admin/conditions/#{condition.id}")
 
@@ -63,6 +68,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert Repo.aggregate(AuditEvent, :count) == 2
     assert has_element?(view, "#condition-entry-url", "/enter/#{condition.entry_token}")
     assert has_element?(view, "#condition-runs")
+    assert has_element?(view, "#condition-instructions-key", "test-instructions.v1")
   end
 
   test "imports a valid uploaded manifest transactionally and records an audit event", %{
@@ -73,7 +79,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
 
     contents =
       Jason.encode!(%{
-        "format_version" => "2",
+        "format_version" => "3",
         "conditions" => [
           %{
             "key" => key,
@@ -187,6 +193,13 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
            )
 
     assert has_element?(definitions, "[id='consent-test-consent.v1']")
+    assert has_element?(definitions, "[id='instruction-set-test-instructions.v1']")
+
+    assert has_element?(
+             definitions,
+             "[id='instruction-set-test-instructions.v1-page-1']",
+             "test-instructions-introduction.v1"
+           )
 
     assert has_element?(
              definitions,
@@ -229,7 +242,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     body = response(conn, 200)
     assert get_resp_header(conn, "content-type") |> hd() =~ "application/x-ndjson"
     export = Jason.decode!(String.trim(body))
-    assert export["schema_version"] == "2"
+    assert export["schema_version"] == "3"
     assert export["condition"]["key"] == condition.key
     assert export["question"] == %{"key" => "test-comparison.v1", "number" => 1}
     assert Repo.get_by!(AuditEvent, action: "responses_exported")
@@ -286,7 +299,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
            ]
 
     export = Jason.decode!(String.trim(body))
-    assert export["schema_version"] == "1"
+    assert export["schema_version"] == "2"
     assert export["event"]["event_id"] == event.event_id
     assert export["participation"]["prolific_participant_id"] == attrs.prolific_participant_id
 
@@ -295,13 +308,29 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
   end
 
   test "run details are read-only and show imported task payloads", %{conn: conn} do
-    condition = condition_fixture()
+    condition = condition_fixture(:comparison, %{instructions_key: "test-instructions.v1"})
     run = run_fixture(condition)
+
+    assert {:ok, participation} =
+             DataCollection.consent_and_assign_run(
+               condition,
+               participation_attrs(condition),
+               "test-consent.v1"
+             )
+
     {:ok, view, _html} = live(conn, ~p"/admin/runs/#{run.id}")
 
     assert has_element?(view, "#run-tasks")
     assert has_element?(view, "#run-tasks", "test-comparison.v1")
     assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "test-comparison.v1")
+    assert has_element?(view, "#run-instruction-progress", "test-instructions.v1")
+
+    assert has_element?(
+             view,
+             "#run-instruction-progress",
+             "#{participation.instruction_pages_completed} pages"
+           )
+
     refute has_element?(view, "#run-tasks form")
     assert Repo.aggregate(Run, :count) == 1
   end
@@ -340,6 +369,36 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     refute has_element?(view, "#participation-responses form")
     assert Repo.aggregate(Response, :count) == 1
     assert Repo.aggregate(Participation, :count) == 1
+  end
+
+  test "participation details show instruction progress and an explanatory equal label", %{
+    conn: conn
+  } do
+    condition = condition_fixture(:comparison, %{instructions_key: "test-instructions.v1"})
+    run = run_fixture(condition)
+
+    assert {:ok, participation} =
+             DataCollection.consent_and_assign_run(
+               condition,
+               participation_attrs(condition),
+               "test-consent.v1"
+             )
+
+    participation =
+      participation
+      |> Ecto.Changeset.change(%{
+        instruction_pages_completed: 1,
+        instructions_completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+      |> Repo.update!()
+
+    insert_response(participation, hd(run.tasks), "test-comparison.v1", :equal)
+
+    {:ok, view, _html} = live(conn, ~p"/admin/participations/#{participation.id}")
+    assert has_element?(view, "#participation-instructions-key", "test-instructions.v1")
+    assert has_element?(view, "#participation-instruction-progress", "1 pages")
+    assert has_element?(view, "#participation-responses", "Very close / neither (equal)")
+    refute has_element?(view, "#participation-responses form")
   end
 
   defp insert_response(participation, task, question_key, choice) do

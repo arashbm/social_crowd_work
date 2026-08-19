@@ -10,13 +10,25 @@ defmodule SocialCrowdWork.ParticipantEvents do
 
   alias SocialCrowdWork.DataCollection.{ParticipantEvent, Participation}
   alias SocialCrowdWork.Experiments.Task
-  alias SocialCrowdWork.Questionnaires
+  alias SocialCrowdWork.{Instructions, Questionnaires}
   alias SocialCrowdWork.Repo
 
   @max_batch_size 25
-  @client_kinds ParticipantEvent.kinds() -- [:answer_created, :answer_changed]
+  @server_kinds [
+    :answer_created,
+    :answer_changed,
+    :instruction_page_advanced,
+    :instructions_completed
+  ]
+  @client_kinds ParticipantEvent.kinds() -- @server_kinds
   @payload_fields ~w(event_id task_id question_key kind client_session_id sequence client_elapsed_ms duration_ms client_occurred_at metadata)
   @question_kinds [:question_rendered, :question_exposure, :copy]
+  @instruction_kinds [
+    :instruction_rendered,
+    :instruction_exposure,
+    :instruction_page_advanced,
+    :instructions_completed
+  ]
   @empty_metadata_kinds [
     :task_rendered,
     :question_rendered,
@@ -27,6 +39,7 @@ defmodule SocialCrowdWork.ParticipantEvents do
   ]
   @context_metadata_keys ~w(device_class viewport_bucket touch_capable browser_family browser_major os_family)
   @exposure_reasons ~w(question_changed task_changed visibility_hidden window_blurred page_unloaded)
+  @instruction_exposure_reasons ~w(instruction_changed visibility_hidden window_blurred page_unloaded)
   @copy_targets ~w(question post post_a post_b other)
 
   def ingest_batch(%Participation{} = participant, events), do: ingest(participant, events)
@@ -85,6 +98,41 @@ defmodule SocialCrowdWork.ParticipantEvents do
     |> Repo.insert!()
   end
 
+  @doc """
+  Appends a server-owned event after instruction progress has been persisted.
+
+  The caller owns the surrounding transaction and passes the page that was
+  advanced or completed. This function records raw progress only.
+  """
+  def insert_instruction_progress_event!(
+        %Participation{} = participant,
+        kind,
+        page_key,
+        page_number
+      )
+      when kind in [:instruction_page_advanced, :instructions_completed] do
+    received_at = now()
+
+    event = %ParticipantEvent{
+      participant_id: participant.id,
+      server_received_at: received_at,
+      inserted_at: received_at
+    }
+
+    event
+    |> ParticipantEvent.changeset(%{
+      kind: kind,
+      event_id: Ecto.UUID.generate(),
+      metadata: %{
+        "instructions_key" => participant.instructions_key,
+        "page_key" => page_key,
+        "page_number" => page_number
+      }
+    })
+    |> validate_instruction_metadata(participant)
+    |> Repo.insert!()
+  end
+
   defp validate_batch_size(events) when length(events) <= @max_batch_size, do: :ok
   defp validate_batch_size(_events), do: {:error, :batch_too_large}
 
@@ -114,7 +162,7 @@ defmodule SocialCrowdWork.ParticipantEvents do
          changeset <- ParticipantEvent.changeset(event, attrs),
          changeset <- validate_client_kind(changeset),
          changeset <- validate_identity(changeset, participant),
-         changeset <- validate_metadata(changeset) do
+         changeset <- validate_metadata(changeset, participant) do
       event_row(changeset)
     else
       {:error, _reason} = error -> error
@@ -185,6 +233,12 @@ defmodule SocialCrowdWork.ParticipantEvents do
         do: add_error(changeset, :question_key, "is required"),
         else: changeset
 
+    changeset =
+      if kind in @instruction_kinds and (task_id || question_key),
+        do:
+          add_error(changeset, :kind, "instruction events cannot have task or question identity"),
+        else: changeset
+
     case task_id && Repo.get(Task, task_id) do
       nil when is_nil(task_id) ->
         if question_key,
@@ -216,7 +270,7 @@ defmodule SocialCrowdWork.ParticipantEvents do
     end
   end
 
-  defp validate_metadata(changeset) do
+  defp validate_metadata(changeset, participant) do
     kind = get_field(changeset, :kind)
     metadata = get_field(changeset, :metadata)
 
@@ -225,10 +279,65 @@ defmodule SocialCrowdWork.ParticipantEvents do
       kind in @empty_metadata_kinds -> validate_empty_metadata(changeset, metadata)
       kind == :client_context -> validate_context_metadata(changeset, metadata)
       kind == :question_exposure -> validate_exposure_metadata(changeset, metadata)
+      kind in @instruction_kinds -> validate_instruction_metadata(changeset, participant)
       kind == :copy -> validate_enum_metadata(changeset, metadata, "target", @copy_targets)
       true -> changeset
     end
   end
+
+  defp validate_instruction_metadata(changeset, participant) do
+    kind = get_field(changeset, :kind)
+    metadata = get_field(changeset, :metadata)
+
+    valid_identity? =
+      is_map(metadata) and
+        Enum.sort(Map.keys(metadata)) == instruction_metadata_keys(kind) and
+        metadata["instructions_key"] == participant.instructions_key and
+        valid_instruction_page?(
+          metadata["instructions_key"],
+          metadata["page_key"],
+          metadata["page_number"]
+        )
+
+    valid? =
+      if kind == :instruction_exposure do
+        valid_identity? and
+          metadata["reason"] in @instruction_exposure_reasons and
+          valid_metadata_value?(metadata["visible_ms"], {:integer, 604_800_000}) and
+          valid_metadata_value?(metadata["focused_ms"], {:integer, 604_800_000}) and
+          metadata["focused_ms"] <= metadata["visible_ms"] and
+          is_integer(get_field(changeset, :duration_ms)) and
+          metadata["visible_ms"] <= get_field(changeset, :duration_ms)
+      else
+        valid_identity?
+      end
+
+    if valid?,
+      do: changeset,
+      else: add_error(changeset, :metadata, "is invalid for #{kind}")
+  end
+
+  defp instruction_metadata_keys(:instruction_exposure),
+    do: ~w(focused_ms instructions_key page_key page_number reason visible_ms)
+
+  defp instruction_metadata_keys(_kind), do: ~w(instructions_key page_key page_number)
+
+  defp valid_instruction_page?(instructions_key, page_key, page_number)
+       when is_binary(instructions_key) and is_binary(page_key) and is_integer(page_number) and
+              page_number > 0 do
+    case Instructions.fetch(instructions_key) do
+      {:ok, instruction_set} ->
+        case Enum.at(instruction_set.pages(), page_number - 1) do
+          nil -> false
+          page -> page.key() == page_key
+        end
+
+      :error ->
+        false
+    end
+  end
+
+  defp valid_instruction_page?(_instructions_key, _page_key, _page_number), do: false
 
   defp validate_empty_metadata(changeset, metadata) do
     if map_size(metadata) == 0,

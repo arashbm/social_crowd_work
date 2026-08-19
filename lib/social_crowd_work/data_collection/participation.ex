@@ -13,6 +13,9 @@ defmodule SocialCrowdWork.DataCollection.Participation do
     field :prolific_session_id, :string
     field :consent_key, :string
     field :consented_at, :utc_datetime
+    field :instructions_key, :string
+    field :instruction_pages_completed, :integer, default: 0
+    field :instructions_completed_at, :utc_datetime
     field :status, Ecto.Enum, values: @statuses, default: :assigned
     field :started_at, :utc_datetime
     field :completed_at, :utc_datetime
@@ -32,6 +35,9 @@ defmodule SocialCrowdWork.DataCollection.Participation do
       :prolific_session_id,
       :consent_key,
       :consented_at,
+      :instructions_key,
+      :instruction_pages_completed,
+      :instructions_completed_at,
       :status,
       :started_at,
       :completed_at
@@ -50,6 +56,9 @@ defmodule SocialCrowdWork.DataCollection.Participation do
     |> validate_length(:prolific_study_id, min: 1, max: 255)
     |> validate_length(:prolific_session_id, min: 1, max: 255)
     |> validate_length(:consent_key, min: 1, max: 255)
+    |> validate_length(:instructions_key, min: 1, max: 255)
+    |> validate_number(:instruction_pages_completed, greater_than_or_equal_to: 0)
+    |> validate_instruction_progress()
     |> validate_completion()
     |> foreign_key_constraint(:run_id)
     |> unique_constraint(:run_id)
@@ -60,6 +69,11 @@ defmodule SocialCrowdWork.DataCollection.Participation do
     |> check_constraint(:prolific_study_id, name: :participations_prolific_study_id_not_blank)
     |> check_constraint(:prolific_session_id, name: :participations_prolific_session_id_not_blank)
     |> check_constraint(:consent_key, name: :participations_consent_key_not_blank)
+    |> check_constraint(:instructions_key, name: :participations_instructions_key_not_blank)
+    |> check_constraint(:instruction_pages_completed,
+      name: :participations_instruction_pages_completed_nonnegative
+    )
+    |> check_constraint(:instructions_key, name: :participations_instructions_consistent)
     |> check_constraint(:status, name: :participations_status_valid)
     |> check_constraint(:completed_at, name: :participations_completion_consistent)
   end
@@ -79,6 +93,18 @@ defmodule SocialCrowdWork.DataCollection.Participation do
 
       true ->
         changeset
+    end
+  end
+
+  defp validate_instruction_progress(changeset) do
+    instructions_key = get_field(changeset, :instructions_key)
+    pages_completed = get_field(changeset, :instruction_pages_completed)
+    completed_at = get_field(changeset, :instructions_completed_at)
+
+    if is_nil(instructions_key) and (pages_completed != 0 or not is_nil(completed_at)) do
+      add_error(changeset, :instructions_key, "must be set when instruction progress exists")
+    else
+      changeset
     end
   end
 end

@@ -12,6 +12,12 @@
       (() => {
         const systemTheme = () => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
+        const updateThemeControls = (theme) => {
+          document.querySelectorAll("[data-phx-theme][role='radio']").forEach((control) => {
+            control.setAttribute("aria-checked", String(control.dataset.phxTheme === theme));
+          });
+        };
+
         const setTheme = (theme) => {
           if (theme === "system") {
             localStorage.removeItem("phx:theme");
@@ -22,12 +28,16 @@
             document.documentElement.setAttribute("data-theme", theme);
             document.documentElement.setAttribute("data-theme-source", "user");
           }
+          updateThemeControls(theme);
         };
         if (!document.documentElement.hasAttribute("data-theme")) {
           setTheme(localStorage.getItem("phx:theme") || "system");
         }
         window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
         window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+        window.addEventListener("DOMContentLoaded", () => {
+          updateThemeControls(localStorage.getItem("phx:theme") || "system");
+        });
 
         matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
           if (document.documentElement.getAttribute("data-theme-source") === "system") {

@@ -36,7 +36,7 @@ defmodule Mix.Tasks.SocialCrowdWork.ExportTest do
 
     assert [line] = path |> File.read!() |> String.split("\n", trim: true)
     record = Jason.decode!(line)
-    assert record["schema_version"] == "2"
+    assert record["schema_version"] == "3"
     assert record["condition"]["key"] == condition.key
     assert record["question"] == %{"key" => "test-comparison.v1", "number" => 1}
     assert record["response"] == nil
