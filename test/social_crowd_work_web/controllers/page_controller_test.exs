@@ -1,9 +1,9 @@
 defmodule SocialCrowdWorkWeb.PageControllerTest do
   use SocialCrowdWorkWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / redirects to the admin panel", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert redirected_to(conn) == ~p"/admin"
   end
 
   test "GET /documents/research_study_privacy_notice.pdf", %{conn: conn} do
