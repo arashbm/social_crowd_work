@@ -3,6 +3,7 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
 
   alias SocialCrowdWork.{AdminAudit, AdminPanel, Consents}
 
+  @runs_per_page 25
   @status_map %{"draft" => :draft, "active" => :active, "paused" => :paused, "closed" => :closed}
 
   @impl true
@@ -19,10 +20,16 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
      )
      |> assign(:consent_options, Enum.map(Consents.all(), &{&1.key(), &1.key()}))
      |> assign(:entry_url, entry_url(summary.condition))
-     |> stream(
-       :runs,
-       AdminPanel.list_run_summaries(socket.assigns.current_scope, summary.condition.id)
-     )}
+     |> assign(:run_page, 1)
+     |> assign(:run_total_pages, total_pages(summary.total_runs))
+     |> assign(:run_page_first, 0)
+     |> assign(:run_page_last, 0)
+     |> stream(:runs, [])}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, load_runs(socket, parse_page(params["page"]))}
   end
 
   @impl true
@@ -142,7 +149,14 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
           <section>
             <div class="mb-4 flex items-center justify-between">
               <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Runs</h2>
-              <span class="text-sm text-slate-500">{@summary.available_runs} available</span>
+              <span id="condition-runs-range" class="text-sm text-slate-500">
+                <%= if @summary.total_runs == 0 do %>
+                  0 runs
+                <% else %>
+                  {@run_page_first}-{@run_page_last} of {@summary.total_runs}
+                <% end %>
+                | {@summary.available_runs} available
+              </span>
             </div>
             <div
               id="condition-runs"
@@ -163,14 +177,56 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
               >
                 <div>
                   <p class="font-semibold text-slate-900 dark:text-white">{run.external_key}</p><p class="mt-1 text-xs text-slate-500">
-                    {length(run.tasks)} tasks
+                    {run.task_count} tasks
                   </p>
                 </div>
-                <span class="text-sm text-slate-500">{if run.participation,
-                  do: Atom.to_string(run.participation.status),
+                <span class="text-sm text-slate-500">{if run.participation_status,
+                  do: Atom.to_string(run.participation_status),
                   else: "available"}</span>
               </.link>
             </div>
+            <nav
+              :if={@run_total_pages > 1}
+              id="condition-runs-pagination"
+              aria-label="Run pages"
+              class="mt-4 flex items-center justify-between gap-4"
+            >
+              <span
+                :if={@run_page == 1}
+                id="condition-runs-previous"
+                aria-disabled="true"
+                class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-400"
+              >
+                Previous
+              </span>
+              <.link
+                :if={@run_page > 1}
+                id="condition-runs-previous"
+                patch={~p"/admin/conditions/#{@summary.condition.id}?page=#{@run_page - 1}"}
+                class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-400 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-500 dark:hover:text-indigo-300"
+              >
+                Previous
+              </.link>
+              <span class="text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300">
+                Page {@run_page} of {@run_total_pages}
+              </span>
+              <span
+                :if={@run_page == @run_total_pages}
+                id="condition-runs-next"
+                aria-disabled="true"
+                class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-400"
+              >
+                Next
+              </span>
+              <.link
+                :if={@run_page < @run_total_pages}
+                id="condition-runs-next"
+                patch={~p"/admin/conditions/#{@summary.condition.id}?page=#{@run_page + 1}"}
+                class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-400 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-500 dark:hover:text-indigo-300"
+              >
+                Next
+              </.link>
+            </nav>
           </section>
         </div>
 
@@ -233,12 +289,44 @@ defmodule SocialCrowdWorkWeb.AdminLive.ConditionShow do
       to_form(AdminPanel.change_condition(socket.assigns.current_scope, summary.condition))
     )
     |> assign(:entry_url, entry_url(summary.condition))
-    |> stream(
-      :runs,
-      AdminPanel.list_run_summaries(socket.assigns.current_scope, summary.condition.id),
-      reset: true
-    )
+    |> load_runs(socket.assigns.run_page)
   end
+
+  defp load_runs(socket, requested_page) do
+    total_runs = socket.assigns.summary.total_runs
+    total_pages = total_pages(total_runs)
+    page = min(requested_page, total_pages)
+
+    runs =
+      AdminPanel.list_run_summaries(
+        socket.assigns.current_scope,
+        socket.assigns.summary.condition.id,
+        limit: @runs_per_page,
+        offset: (page - 1) * @runs_per_page
+      )
+
+    first = if total_runs == 0, do: 0, else: (page - 1) * @runs_per_page + 1
+    last = min(page * @runs_per_page, total_runs)
+
+    socket
+    |> assign(:run_page, page)
+    |> assign(:run_total_pages, total_pages)
+    |> assign(:run_page_first, first)
+    |> assign(:run_page_last, last)
+    |> stream(:runs, runs, reset: true)
+  end
+
+  defp parse_page(page) when is_binary(page) do
+    case Integer.parse(page) do
+      {page, ""} when page > 0 -> page
+      _other -> 1
+    end
+  end
+
+  defp parse_page(_page), do: 1
+
+  defp total_pages(0), do: 1
+  defp total_pages(total_runs), do: div(total_runs - 1, @runs_per_page) + 1
 
   defp entry_url(condition) do
     url(~p"/enter/#{condition.entry_token}") <>

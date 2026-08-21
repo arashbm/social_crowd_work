@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.AdminPanel do
 
   alias Ecto.Changeset
   alias SocialCrowdWork.Admins.Scope
-  alias SocialCrowdWork.DataCollection.Participation
+  alias SocialCrowdWork.DataCollection.{Participation, Response}
   alias SocialCrowdWork.Experiments
   alias SocialCrowdWork.Experiments.{Condition, ImportBatch, Run, Task}
   alias SocialCrowdWork.Imports
@@ -100,11 +100,33 @@ defmodule SocialCrowdWork.AdminPanel do
     end)
   end
 
-  def list_run_summaries(%Scope{}, condition_id) do
-    Run
-    |> where([run], run.condition_id == ^condition_id)
-    |> order_by([run], asc: run.external_key)
-    |> preload([:tasks, :participation])
+  def list_run_summaries(%Scope{}, condition_id, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    offset = Keyword.fetch!(opts, :offset)
+
+    paged_runs =
+      from(run in Run,
+        where: run.condition_id == ^condition_id,
+        order_by: [asc: run.external_key],
+        limit: ^limit,
+        offset: ^offset,
+        select: %{id: run.id, external_key: run.external_key}
+      )
+
+    from(run in subquery(paged_runs),
+      left_join: task in Task,
+      on: task.run_id == run.id,
+      left_join: participation in Participation,
+      on: participation.run_id == run.id,
+      group_by: [run.id, run.external_key, participation.status],
+      order_by: [asc: run.external_key],
+      select: %{
+        id: run.id,
+        external_key: run.external_key,
+        task_count: count(task.id),
+        participation_status: participation.status
+      }
+    )
     |> Repo.all()
   end
 
@@ -124,7 +146,36 @@ defmodule SocialCrowdWork.AdminPanel do
   def get_participation!(%Scope{}, id) do
     Participation
     |> Repo.get!(id)
-    |> Repo.preload([:responses, run: [:condition, :tasks]])
+    |> Repo.preload(run: :condition)
+  end
+
+  def count_participation_tasks(%Scope{}, %Participation{run_id: run_id}) do
+    Repo.aggregate(from(task in Task, where: task.run_id == ^run_id), :count)
+  end
+
+  def list_participation_task_page(%Scope{}, %Participation{} = participation, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+    offset = Keyword.fetch!(opts, :offset)
+
+    tasks =
+      Task
+      |> where([task], task.run_id == ^participation.run_id)
+      |> order_by([task], asc: task.position)
+      |> limit(^limit)
+      |> offset(^offset)
+      |> Repo.all()
+
+    task_ids = Enum.map(tasks, & &1.id)
+
+    responses =
+      Response
+      |> where(
+        [response],
+        response.participation_id == ^participation.id and response.task_id in ^task_ids
+      )
+      |> Repo.all()
+
+    %{tasks: tasks, responses: responses}
   end
 
   def participation_progress(%Participation{} = participation) do

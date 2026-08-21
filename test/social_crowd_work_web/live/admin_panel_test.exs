@@ -71,6 +71,43 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(view, "#condition-instructions-key", "test-instructions.v1")
   end
 
+  test "condition runs are paginated without loading the full inventory", %{conn: conn} do
+    condition = condition_fixture()
+    import_batch = import_batch_fixture()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    runs =
+      for number <- 1..27 do
+        %{
+          condition_id: condition.id,
+          import_batch_id: import_batch.id,
+          external_key: "run-#{number |> Integer.to_string() |> String.pad_leading(3, "0")}",
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    {27, _rows} = Repo.insert_all(Run, runs)
+
+    {:ok, view, _html} = live(conn, ~p"/admin/conditions/#{condition.id}")
+
+    assert has_element?(view, "#condition-runs-range", "1-25 of 27")
+    assert has_element?(view, "#condition-runs", "run-001")
+    refute has_element?(view, "#condition-runs", "run-026")
+    assert has_element?(view, "#condition-runs-pagination", "Page 1 of 2")
+    assert has_element?(view, "#condition-runs-previous[aria-disabled='true']")
+
+    view |> element("#condition-runs-next") |> render_click()
+    assert_patch(view, ~p"/admin/conditions/#{condition.id}?page=2")
+
+    assert has_element?(view, "#condition-runs-range", "26-27 of 27")
+    assert has_element?(view, "#condition-runs", "run-026")
+    assert has_element?(view, "#condition-runs", "run-027")
+    refute has_element?(view, "#condition-runs", "run-001")
+    assert has_element?(view, "#condition-runs-next[aria-disabled='true']")
+    assert has_element?(view, "#condition-runs-previous[href*='page=1']")
+  end
+
   test "imports a valid uploaded manifest transactionally and records an audit event", %{
     conn: conn
   } do
@@ -363,6 +400,7 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(index, "#participation-#{participation.id}", "1 / 3 questions")
 
     {:ok, view, _html} = live(conn, ~p"/admin/participations/#{participation.id}")
+    assert has_element?(view, "h1", "Participation #{participation.id}")
     assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "worry.v1")
     assert has_element?(view, "#task-#{hd(run.tasks).id}-question-2", "restlessness.v1")
     assert has_element?(view, "#task-#{hd(run.tasks).id}-question-3", "cognitive-disruption.v1")
@@ -399,6 +437,46 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(view, "#participation-instruction-progress", "1 pages")
     assert has_element?(view, "#participation-responses", "Very close / neither (equal)")
     refute has_element?(view, "#participation-responses form")
+  end
+
+  test "participation task and question responses are paginated", %{conn: conn} do
+    condition = condition_fixture()
+    run = run_fixture(condition, %{tasks: Enum.map(1..12, &comparison_task/1)})
+
+    assert {:ok, participation} =
+             DataCollection.consent_and_assign_run(
+               condition,
+               participation_attrs(condition),
+               "test-consent.v1"
+             )
+
+    Enum.each(run.tasks, fn task ->
+      insert_response(participation, task, "test-comparison.v1", :post_a)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/admin/participations/#{participation.id}")
+
+    task_1 = Enum.find(run.tasks, &(&1.position == 1))
+    task_10 = Enum.find(run.tasks, &(&1.position == 10))
+    task_11 = Enum.find(run.tasks, &(&1.position == 11))
+    task_12 = Enum.find(run.tasks, &(&1.position == 12))
+
+    assert has_element?(view, "#participation-responses-range", "Tasks 1-10 of 12")
+    assert has_element?(view, "#task-#{task_1.id}-question-1")
+    assert has_element?(view, "#task-#{task_10.id}-question-1")
+    refute has_element?(view, "#task-#{task_11.id}-question-1")
+    assert has_element?(view, "#participation-responses-pagination", "Page 1 of 2")
+    assert has_element?(view, "#participation-responses-previous[aria-disabled='true']")
+
+    view |> element("#participation-responses-next") |> render_click()
+    assert_patch(view, ~p"/admin/participations/#{participation.id}?page=2")
+
+    assert has_element?(view, "#participation-responses-range", "Tasks 11-12 of 12")
+    assert has_element?(view, "#task-#{task_11.id}-question-1")
+    assert has_element?(view, "#task-#{task_12.id}-question-1")
+    refute has_element?(view, "#task-#{task_1.id}-question-1")
+    assert has_element?(view, "#participation-responses-next[aria-disabled='true']")
+    assert has_element?(view, "#participation-responses-previous[href*='page=1']")
   end
 
   defp insert_response(participation, task, question_key, choice) do
