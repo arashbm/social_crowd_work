@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.DevComparisonPrompt do
   def key, do: "dev-negative-tone.v1"
 
   @impl true
-  def title, do: "Which post has a more negative tone?"
+  def description, do: "Compare the overall wording and attitude conveyed by each post."
 
   @impl true
   def task_type, do: :comparison
@@ -17,18 +17,15 @@ defmodule SocialCrowdWork.DevComparisonPrompt do
 
   @impl true
   def render(assigns) do
+    assigns = Map.put_new(assigns, :id, "dev-comparison-prompt")
+
     ~H"""
-    <div id="dev-comparison-prompt">
-      <p class="text-sm font-semibold uppercase tracking-[0.16em] text-indigo-700">
-        Development prompt
-      </p>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
-        Which post has a more negative tone?
-      </h1>
-      <p class="mt-3 leading-6 text-slate-600 dark:text-slate-300">
-        Consider the overall wording and attitude. Choose equal if neither post is more negative.
-      </p>
-    </div>
+    <span
+      id={@id}
+      class="block text-lg font-bold leading-snug tracking-tight text-slate-950 dark:text-white sm:text-xl"
+    >
+      Which post has a more <u class="decoration-indigo-500 decoration-2 underline-offset-4">negative tone</u>?
+    </span>
     """
   end
 end

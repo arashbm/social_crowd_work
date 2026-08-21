@@ -15,7 +15,9 @@ defmodule SocialCrowdWork.PromptsTest do
       assert {:ok, ^module} = Prompts.fetch(key)
       assert module.task_type() == :comparison
       assert module.choices() == [:post_a, :post_b, :equal, :skip]
+      assert is_binary(module.description())
       assert %Phoenix.LiveView.Rendered{} = module.render(%{})
+      assert %Phoenix.LiveView.Rendered{} = module.detailed_instructions(%{})
     end)
   end
 
@@ -35,6 +37,7 @@ defmodule SocialCrowdWork.PromptsTest do
 
     assert prompt.task_type() == :comparison
     assert prompt.choices() == [:post_a, :post_b, :equal, :skip]
+    assert prompt.description() == "Compare both test posts against the test criterion."
     assert %Phoenix.LiveView.Rendered{} = prompt.render(%{})
   end
 

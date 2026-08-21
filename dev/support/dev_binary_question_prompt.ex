@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.DevBinaryQuestionPrompt do
   def key, do: "dev-expresses-frustration.v1"
 
   @impl true
-  def title, do: "Does this post express frustration?"
+  def description, do: "Judge the frustration communicated by the wording in the post."
 
   @impl true
   def task_type, do: :binary_question
@@ -17,18 +17,15 @@ defmodule SocialCrowdWork.DevBinaryQuestionPrompt do
 
   @impl true
   def render(assigns) do
+    assigns = Map.put_new(assigns, :id, "dev-binary-question-prompt")
+
     ~H"""
-    <div id="dev-binary-question-prompt">
-      <p class="text-sm font-semibold uppercase tracking-[0.16em] text-indigo-700">
-        Development prompt
-      </p>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
-        Does this post express frustration?
-      </h1>
-      <p class="mt-3 leading-6 text-slate-600 dark:text-slate-300">
-        Answer based only on the text shown below.
-      </p>
-    </div>
+    <span
+      id={@id}
+      class="block text-lg font-bold leading-snug tracking-tight text-slate-950 dark:text-white sm:text-xl"
+    >
+      Does this post express <u class="decoration-indigo-500 decoration-2 underline-offset-4">frustration</u>?
+    </span>
     """
   end
 end

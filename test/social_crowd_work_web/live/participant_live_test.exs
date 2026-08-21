@@ -165,7 +165,16 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
              "#question-1-region[role='region'][aria-labelledby='question-1-header']"
            )
 
-    assert has_element?(view, "#question-1-region #worry-prompt-v1")
+    assert has_element?(view, "#question-1-header #worry-prompt-v1")
+    refute has_element?(view, "#question-1-region #worry-prompt-v1")
+
+    assert has_element?(
+             view,
+             "#question-1-region",
+             "Compare how strongly each post expresses worry"
+           )
+
+    assert has_element?(view, "#question-1-detailed-instructions", "Detailed instructions")
 
     assert has_element?(
              view,
@@ -197,6 +206,23 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
            )
 
     assert has_element?(view, "#task-panel", "Click an answer or use its keyboard shortcut")
+
+    view |> element("#question-1-detailed-instructions") |> render_click()
+
+    assert has_element?(
+             view,
+             "#detailed-instructions-dialog [role='dialog'][aria-modal='true']"
+           )
+
+    assert has_element?(
+             view,
+             "#detailed-instructions-question #detailed-instructions-question-text",
+             "Which post shows more worry about something bad happening?"
+           )
+
+    assert has_element?(view, "#close-detailed-instructions")
+    view |> element("#close-detailed-instructions") |> render_click()
+    refute has_element?(view, "#detailed-instructions-dialog")
 
     participation = Repo.get_by!(Participation, prolific_session_id: attrs.prolific_session_id)
     assert participation.consent_key == "test-consent.v1"
@@ -260,7 +286,14 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
            )
 
     assert has_element?(view, "#question-2[data-state='active']")
-    assert has_element?(view, "#question-2-region #restlessness-prompt-v1")
+    assert has_element?(view, "#question-2-header #restlessness-prompt-v1")
+
+    assert has_element?(
+             view,
+             "#question-2-region",
+             "Compare how strongly each post conveys emotional tension"
+           )
+
     assert has_element?(view, "#question-3-header[disabled]")
 
     view |> element("#question-1-header") |> render_click()

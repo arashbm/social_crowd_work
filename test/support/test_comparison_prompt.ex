@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.TestComparisonPrompt do
   def key, do: "test-comparison.v1"
 
   @impl true
-  def title, do: "Which test post matches the test criterion?"
+  def description, do: "Compare both test posts against the test criterion."
 
   @impl true
   def task_type, do: :comparison
@@ -17,13 +17,22 @@ defmodule SocialCrowdWork.TestComparisonPrompt do
 
   @impl true
   def render(assigns) do
+    assigns = Map.put_new(assigns, :id, "test-comparison-prompt")
+
     ~H"""
-    <div id="test-comparison-prompt">
-      <p class="text-sm font-semibold uppercase tracking-[0.16em] text-indigo-700">Comparison</p>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
-        Which test post matches the test criterion?
-      </h1>
-    </div>
+    <span
+      id={@id}
+      class="block text-lg font-bold leading-snug tracking-tight text-slate-950 dark:text-white sm:text-xl"
+    >
+      Which test post matches the <u class="decoration-indigo-500 decoration-2 underline-offset-4">test criterion</u>?
+    </span>
+    """
+  end
+
+  @impl true
+  def detailed_instructions(assigns) do
+    ~H"""
+    <p id="test-comparison-detailed-instructions">Detailed test comparison guidance.</p>
     """
   end
 end

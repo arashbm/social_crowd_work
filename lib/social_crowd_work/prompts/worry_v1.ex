@@ -7,7 +7,9 @@ defmodule SocialCrowdWork.Prompts.WorryV1 do
   def key, do: "worry.v1"
 
   @impl true
-  def title, do: "Which post shows more worry about something bad happening?"
+  def description,
+    do:
+      "Compare how strongly each post expresses worry or anticipation that something bad may happen."
 
   @impl true
   def task_type, do: :comparison
@@ -17,13 +19,31 @@ defmodule SocialCrowdWork.Prompts.WorryV1 do
 
   @impl true
   def render(assigns) do
+    assigns = Map.put_new(assigns, :id, "worry-prompt-v1")
+
     ~H"""
-    <div id="worry-prompt-v1">
-      <h1 class="text-2xl font-semibold leading-tight tracking-tight text-slate-950 dark:text-white sm:text-3xl">
-        Which post shows more
-        <u class="decoration-indigo-500 decoration-2 underline-offset-4 dark:decoration-indigo-400">worry</u>
-        about something bad happening?
-      </h1>
+    <span
+      id={@id}
+      class="block text-lg font-bold leading-snug tracking-tight text-slate-950 dark:text-white sm:text-xl"
+    >
+      Which post shows more
+      <u class="decoration-indigo-500 decoration-2 underline-offset-4 dark:decoration-indigo-400">worry</u>
+      about something bad happening?
+    </span>
+    """
+  end
+
+  @impl true
+  def detailed_instructions(assigns) do
+    ~H"""
+    <div class="space-y-4 text-sm leading-6 text-slate-600 dark:text-slate-300">
+      <p>Read both posts in full and compare the degree of worry expressed in each one.</p>
+      <p>
+        Look for concern, apprehension, or anticipation that an unwanted event may occur. Judge what the text communicates rather than what the writer might feel privately.
+      </p>
+      <p>
+        Choose Post A or Post B when one clearly expresses more worry. Choose Very close / neither when the difference is too small to judge or neither post expresses the criterion.
+      </p>
     </div>
     """
   end

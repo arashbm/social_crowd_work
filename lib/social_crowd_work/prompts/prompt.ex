@@ -10,8 +10,11 @@ defmodule SocialCrowdWork.Prompts.Prompt do
   @type choice :: :post_a | :post_b | :equal | :yes | :no | :skip
 
   @callback key() :: String.t()
-  @callback title() :: String.t()
+  @callback description() :: String.t()
   @callback task_type() :: task_type()
   @callback choices() :: [choice()]
   @callback render(map()) :: Phoenix.LiveView.Rendered.t()
+  @callback detailed_instructions(map()) :: Phoenix.LiveView.Rendered.t()
+
+  @optional_callbacks detailed_instructions: 1
 end

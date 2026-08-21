@@ -29,6 +29,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       |> assign(:questionnaire, nil)
       |> assign(:questions, [])
       |> assign(:active_question_key, nil)
+      |> assign(:detailed_instructions_question_key, nil)
       |> assign(:total_tasks, 0)
       |> assign(:navigation_mode, :forward)
       |> assign(:frontier_position, nil)
@@ -162,6 +163,30 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   def handle_event("previous_instruction", _params, socket), do: {:noreply, socket}
 
   def handle_event(
+        "open_detailed_instructions",
+        %{"question_key" => question_key},
+        %{assigns: %{state: :task, active_question_key: question_key}} = socket
+      ) do
+    case question_by_key(socket.assigns.questions, question_key) do
+      %{module: question} ->
+        if function_exported?(question, :detailed_instructions, 1) do
+          {:noreply, assign(socket, :detailed_instructions_question_key, question_key)}
+        else
+          {:noreply, socket}
+        end
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("open_detailed_instructions", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close_detailed_instructions", _params, socket) do
+    {:noreply, assign(socket, :detailed_instructions_question_key, nil)}
+  end
+
+  def handle_event(
         "open_question",
         %{"position" => submitted_position, "question_key" => question_key},
         %{assigns: %{state: :task}} = socket
@@ -230,6 +255,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                 questionnaire={@questionnaire}
                 questions={@questions}
                 active_question_key={@active_question_key}
+                detailed_instructions_question_key={@detailed_instructions_question_key}
                 total_tasks={@total_tasks}
                 navigation_mode={@navigation_mode}
               />
@@ -305,6 +331,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                 })
                 this.onKeydown = event => {
                   if (this.pending || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+                  if (this.el.querySelector('[aria-modal="true"]')) return
                   if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) || event.target.isContentEditable) return
 
                   const key = event.code === "Space" ? "space" : (event.key.length === 1 ? event.key.toLowerCase() : event.key)
@@ -674,6 +701,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   attr :questionnaire, :any, required: true
   attr :questions, :list, required: true
   attr :active_question_key, :string, default: nil
+  attr :detailed_instructions_question_key, :string, default: nil
   attr :total_tasks, :integer, required: true
   attr :navigation_mode, :atom, required: true
 
@@ -735,6 +763,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             questionnaire={@questionnaire}
             question={question}
             active?={question.key == @active_question_key}
+            details_open?={question.key == @detailed_instructions_question_key}
           />
         </div>
       </div>
@@ -764,6 +793,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   attr :questionnaire, :any, required: true
   attr :question, :map, required: true
   attr :active?, :boolean, required: true
+  attr :details_open?, :boolean, required: true
 
   defp question_item(assigns) do
     locked? = is_nil(assigns.question.response) and not assigns.active?
@@ -807,12 +837,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
           {@question.number}
         </span>
         <span class="min-w-0 flex-1">
-          <span class="block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+          <span class="block text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-300 sm:text-xs">
             Question {@question.number}
           </span>
-          <span class="mt-1 block font-semibold leading-6 text-slate-900 dark:text-white">
-            {@question.module.title()}
-          </span>
+          <span class="mt-1 block">{render_definition(@question.module)}</span>
         </span>
         <span
           :if={@answered?}
@@ -839,7 +867,25 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
             class="border-t border-indigo-200 px-3 py-3 dark:border-indigo-500/30 sm:px-6 sm:py-6"
           >
             <%= if @active? do %>
-              {render_definition(@question.module)}
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">
+                <p>{@question.module.description()}</p>
+                <button
+                  :if={function_exported?(@question.module, :detailed_instructions, 1)}
+                  id={"question-#{@question.number}-detailed-instructions"}
+                  type="button"
+                  phx-click="open_detailed_instructions"
+                  phx-value-question_key={@question.key}
+                  class="inline-flex shrink-0 items-center gap-1 font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-4 transition hover:text-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-indigo-300 dark:decoration-indigo-600 dark:hover:text-indigo-200 dark:focus:ring-offset-slate-900"
+                >
+                  Detailed instructions <.icon name="hero-arrow-up-right" class="size-3.5" />
+                </button>
+              </div>
+
+              <.detailed_instructions_dialog
+                :if={@details_open?}
+                question={@question}
+              />
+
               <%= if @questionnaire.task_type() == :comparison do %>
                 <.comparison_actions task={@task} question={@question} />
               <% else %>
@@ -850,6 +896,65 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         </div>
       </div>
     </section>
+    """
+  end
+
+  attr :question, :map, required: true
+
+  defp detailed_instructions_dialog(assigns) do
+    ~H"""
+    <div
+      id="detailed-instructions-dialog"
+      class="fixed inset-0 z-50 grid place-items-center p-3 sm:p-6"
+      phx-window-keydown="close_detailed_instructions"
+      phx-key="escape"
+    >
+      <button
+        id="detailed-instructions-backdrop"
+        type="button"
+        phx-click="close_detailed_instructions"
+        aria-label="Close detailed instructions"
+        class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="detailed-instructions-title"
+        tabindex="-1"
+        phx-mounted={JS.focus()}
+        class="relative z-10 max-h-[min(40rem,calc(100vh-1.5rem))] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl focus:outline-none dark:border-slate-700 dark:bg-slate-900 sm:p-8"
+      >
+        <header class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4 dark:border-slate-700">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-300">
+              Question {@question.number}
+            </p>
+            <h2
+              id="detailed-instructions-title"
+              class="mt-1 text-xl font-bold tracking-tight text-slate-950 dark:text-white"
+            >
+              Detailed instructions
+            </h2>
+          </div>
+          <button
+            id="close-detailed-instructions"
+            type="button"
+            phx-click="close_detailed_instructions"
+            aria-label="Close detailed instructions"
+            class="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:hover:bg-slate-800 dark:hover:text-white"
+          >
+            <.icon name="hero-x-mark" class="size-5" />
+          </button>
+        </header>
+        <div
+          id="detailed-instructions-question"
+          class="mt-5 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-500/30 dark:bg-indigo-500/10"
+        >
+          {render_definition(@question.module, %{id: "detailed-instructions-question-text"})}
+        </div>
+        <div class="mt-5">{render_detailed_instructions(@question.module)}</div>
+      </section>
+    </div>
     """
   end
 
@@ -1160,6 +1265,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         |> assign(:questionnaire, page.questionnaire)
         |> assign(:questions, page.questions)
         |> assign(:active_question_key, active_question_key)
+        |> assign(:detailed_instructions_question_key, nil)
         |> assign(:total_tasks, page.total_tasks)
         |> assign(:state, :task)
 
@@ -1241,6 +1347,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     |> assign(:questionnaire, page.questionnaire)
     |> assign(:questions, page.questions)
     |> assign(:active_question_key, active_question_key)
+    |> assign(:detailed_instructions_question_key, nil)
     |> assign(:total_tasks, page.total_tasks)
     |> assign(:state, :task)
   end
@@ -1294,4 +1401,6 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   defp selected?(response, choice), do: response.choice == choice
 
   defp render_definition(module), do: module.render(%{})
+  defp render_definition(module, assigns), do: module.render(assigns)
+  defp render_detailed_instructions(module), do: module.detailed_instructions(%{})
 end

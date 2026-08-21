@@ -7,7 +7,7 @@ defmodule SocialCrowdWork.TestBinaryQuestionPrompt do
   def key, do: "test-binary-question.v1"
 
   @impl true
-  def title, do: "Does the test post match the test criterion?"
+  def description, do: "Judge the test post against the test criterion."
 
   @impl true
   def task_type, do: :binary_question
@@ -17,13 +17,15 @@ defmodule SocialCrowdWork.TestBinaryQuestionPrompt do
 
   @impl true
   def render(assigns) do
+    assigns = Map.put_new(assigns, :id, "test-binary-question-prompt")
+
     ~H"""
-    <div id="test-binary-question-prompt">
-      <p class="text-sm font-semibold uppercase tracking-[0.16em] text-indigo-700">Question</p>
-      <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl">
-        Does the test post match the test criterion?
-      </h1>
-    </div>
+    <span
+      id={@id}
+      class="block text-lg font-bold leading-snug tracking-tight text-slate-950 dark:text-white sm:text-xl"
+    >
+      Does the test post match the <u class="decoration-indigo-500 decoration-2 underline-offset-4">test criterion</u>?
+    </span>
     """
   end
 end
