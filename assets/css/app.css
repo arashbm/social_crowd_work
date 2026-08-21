@@ -5,6 +5,7 @@
 @import "phoenix-colocated/social_crowd_work/colocated.css";
 @source "../css";
 @source "../js";
+@source "../../lib/social_crowd_work";
 @source "../../lib/social_crowd_work_web";
 @source "../../dev/support";
 /* Required for Tailwind to automatically pick up changes in colocated CSS files in dev */
