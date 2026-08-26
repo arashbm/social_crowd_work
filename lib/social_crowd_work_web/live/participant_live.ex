@@ -329,6 +329,22 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
                 this.handleEvent("scroll_to_top", () => {
                   window.scrollTo({top: 0, behavior: "smooth"})
                 })
+                this.handleEvent("scroll_to_question", ({id}) => {
+                  window.requestAnimationFrame(() => {
+                    const question = document.getElementById(id)
+                    if (!question) return
+
+                    const margin = 16
+                    const bounds = question.getBoundingClientRect()
+                    const fullyVisible = bounds.top >= margin && bounds.bottom <= window.innerHeight - margin
+                    if (fullyVisible) return
+
+                    window.scrollTo({
+                      top: Math.max(0, window.scrollY + bounds.top - margin),
+                      behavior: "smooth"
+                    })
+                  })
+                })
                 this.onKeydown = event => {
                   if (this.pending || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
                   if (this.el.querySelector('[aria-modal="true"]')) return
@@ -670,7 +686,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       </header>
 
       <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/5 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 sm:rounded-3xl sm:p-11">
-        {render_definition(@page_module)}
+        {render_instruction_definition(@page_module)}
       </div>
 
       <footer class="flex items-center justify-between gap-4">
@@ -809,13 +825,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
       data-question-key={@question.key}
       data-state={question_state(@active?, @answered?)}
       class={[
-        "overflow-hidden rounded-2xl border transition duration-300",
+        "scroll-m-4 overflow-hidden rounded-2xl border transition duration-300",
         @active? &&
-          "border-indigo-400 bg-indigo-50/60 shadow-sm dark:border-indigo-500 dark:bg-indigo-500/10",
+          "border-indigo-400 bg-indigo-50/70 shadow-md shadow-indigo-950/5 dark:border-indigo-500 dark:bg-indigo-500/10 dark:shadow-black/20",
         @answered? && not @active? &&
-          "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+          "border-slate-200/60 bg-slate-50/40 opacity-50 hover:opacity-75 dark:border-slate-800 dark:bg-slate-950/30",
         @locked? &&
-          "border-slate-200 bg-slate-50 opacity-50 dark:border-slate-800 dark:bg-slate-950/40"
+          "border-slate-200/50 bg-slate-100/40 opacity-25 dark:border-slate-800/70 dark:bg-slate-950/20"
       ]}
     >
       <button
@@ -827,20 +843,36 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
         aria-expanded={to_string(@active?)}
         aria-controls={"question-#{@question.number}-region"}
         disabled={@locked? or @active?}
-        class="flex w-full items-center gap-2.5 px-3 py-2.5 text-left disabled:cursor-default sm:gap-4 sm:px-6 sm:py-4"
+        class={[
+          "flex w-full items-center text-left disabled:cursor-default",
+          @active? && "gap-2.5 px-3 py-2.5 sm:gap-4 sm:px-6 sm:py-4",
+          not @active? && "gap-2 px-3 py-1.5 sm:gap-3 sm:px-5 sm:py-2"
+        ]}
       >
         <span class={[
-          "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold sm:size-8 sm:text-sm",
-          @active? && "bg-indigo-700 text-white dark:bg-indigo-500",
-          not @active? && "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200"
+          "flex shrink-0 items-center justify-center rounded-full font-bold",
+          @active? &&
+            "size-7 bg-indigo-700 text-xs text-white dark:bg-indigo-500 sm:size-8 sm:text-sm",
+          not @active? &&
+            "size-6 bg-slate-100 text-[10px] text-slate-400 dark:bg-slate-800/70 dark:text-slate-500 sm:size-7 sm:text-xs"
         ]}>
           {@question.number}
         </span>
         <span class="min-w-0 flex-1">
-          <span class="block text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-300 sm:text-xs">
+          <span class={[
+            "font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-300",
+            @active? && "block text-[10px] sm:text-xs",
+            not @active? && "hidden"
+          ]}>
             Question {@question.number}
           </span>
-          <span class="mt-1 block">{render_definition(@question.module)}</span>
+          <span class={[
+            "block",
+            @active? && "mt-1",
+            not @active? && "[&>span]:text-sm [&>span]:leading-5 sm:[&>span]:text-base"
+          ]}>
+            {render_definition(@question.module)}
+          </span>
         </span>
         <span
           :if={@answered?}
@@ -1284,7 +1316,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
   defp after_answer(socket) do
     case DataCollection.task_page(socket.assigns.participation, socket.assigns.task.position) do
       {:ok, %{complete?: false} = page} ->
-        {:noreply, assign_page(socket, page, page.active_question_key)}
+        {:noreply,
+         socket
+         |> assign_page(page, page.active_question_key)
+         |> scroll_to_question(page, page.active_question_key)}
 
       {:ok, %{complete?: true}} ->
         if socket.assigns.task.position < socket.assigns.total_tasks do
@@ -1312,7 +1347,10 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
     cond do
       next_question ->
-        {:noreply, assign_page(socket, page, next_question.key)}
+        {:noreply,
+         socket
+         |> assign_page(page, next_question.key)
+         |> scroll_to_question(page, next_question.key)}
 
       socket.assigns.task.position + 1 < socket.assigns.frontier_position ->
         {:noreply,
@@ -1350,6 +1388,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
     |> assign(:detailed_instructions_question_key, nil)
     |> assign(:total_tasks, page.total_tasks)
     |> assign(:state, :task)
+  end
+
+  defp scroll_to_question(socket, page, question_key) do
+    case Enum.find(page.questions, &(&1.key == question_key)) do
+      nil -> socket
+      question -> push_event(socket, "scroll_to_question", %{id: "question-#{question.number}"})
+    end
   end
 
   defp active_question_key(page, :next_unanswered), do: page.active_question_key
@@ -1402,5 +1447,6 @@ defmodule SocialCrowdWorkWeb.ParticipantLive do
 
   defp render_definition(module), do: module.render(%{})
   defp render_definition(module, assigns), do: module.render(assigns)
+  defp render_instruction_definition(module), do: module.render(%{instruction_page: true})
   defp render_detailed_instructions(module), do: module.detailed_instructions(%{})
 end

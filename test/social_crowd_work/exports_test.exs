@@ -30,21 +30,21 @@ defmodule SocialCrowdWork.ExportsTest do
              DataCollection.consent_and_assign_run(condition, attrs, "test-consent.v1")
 
     [task] = run.tasks
-    insert_response(participation, task, "worry.v1", :skip)
-    insert_response(participation, task, "restlessness.v1", :post_a)
+    insert_response(participation, task, "low-mood.v1", :skip)
+    insert_response(participation, task, "hopelessness.v1", :post_a)
 
     assert {:ok, lines} = collect_jsonl(condition_key: condition.key)
-    assert length(lines) == 3
+    assert length(lines) == 16
 
-    [answered, second_answered, unanswered] = Enum.map(lines, &Jason.decode!/1)
+    [answered, second_answered, unanswered | _remaining] = Enum.map(lines, &Jason.decode!/1)
     assert answered["task"]["position"] == 1
     assert answered["task"]["questionnaire_key"] == "psychosocial-comparisons.v1"
     assert answered["questionnaire"] == %{"key" => "psychosocial-comparisons.v1"}
-    assert answered["question"] == %{"key" => "worry.v1", "number" => 1}
+    assert answered["question"] == %{"key" => "low-mood.v1", "number" => 1}
     assert answered["response"]["choice"] == "skip"
-    assert second_answered["question"] == %{"key" => "restlessness.v1", "number" => 2}
+    assert second_answered["question"] == %{"key" => "hopelessness.v1", "number" => 2}
     assert second_answered["response"]["choice"] == "post_a"
-    assert unanswered["question"] == %{"key" => "cognitive-disruption.v1", "number" => 3}
+    assert unanswered["question"] == %{"key" => "worry.v1", "number" => 3}
     assert unanswered["response"] == nil
 
     assert answered["task"]["stimuli"]["post_a"]["author"] == %{

@@ -220,13 +220,13 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(
              definitions,
              "[id='questionnaire-psychosocial-comparisons.v1-question-1']",
-             "worry.v1"
+             "low-mood.v1"
            )
 
     assert has_element?(
              definitions,
-             "[id='questionnaire-psychosocial-comparisons.v1-question-3']",
-             "cognitive-disruption.v1"
+             "[id='questionnaire-psychosocial-comparisons.v1-question-16']",
+             "appetite-changes.v1"
            )
 
     assert has_element?(definitions, "[id='consent-test-consent.v1']")
@@ -241,33 +241,37 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(
              definitions,
              "[id='prompt-worry.v1'] #worry-prompt-v1",
-             "Which post shows more worry about something bad happening?"
+             "Which post shows more concern about something bad or uncertain happening?"
            )
 
-    assert has_element?(definitions, "#worry-prompt-v1 u", "worry")
+    assert has_element?(
+             definitions,
+             "#worry-prompt-v1 u",
+             "concern about something bad or uncertain happening"
+           )
 
     assert has_element?(
              definitions,
              "[id='prompt-restlessness.v1'] #restlessness-prompt-v1",
-             "Which post sounds more emotionally tense, agitated, or unable to settle down?"
+             "Which post shows more difficulty relaxing or settling down?"
            )
 
     assert has_element?(
              definitions,
              "#restlessness-prompt-v1 u",
-             "emotionally tense, agitated, or unable to settle down"
+             "difficulty relaxing or settling down"
            )
 
     assert has_element?(
              definitions,
              "[id='prompt-cognitive-disruption.v1'] #cognitive-disruption-prompt-v1",
-             "Which post shows more difficulty thinking clearly because of distress?"
+             "Which post shows more difficulty thinking clearly or controlling thoughts?"
            )
 
     assert has_element?(
              definitions,
              "#cognitive-disruption-prompt-v1 u",
-             "difficulty thinking clearly because of distress"
+             "difficulty thinking clearly or controlling thoughts"
            )
 
     assert has_element?(
@@ -397,13 +401,13 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     insert_response(participation, hd(run.tasks), "worry.v1", :post_a)
 
     {:ok, index, _html} = live(conn, ~p"/admin/participations")
-    assert has_element?(index, "#participation-#{participation.id}", "1 / 3 questions")
+    assert has_element?(index, "#participation-#{participation.id}", "1 / 16 questions")
 
     {:ok, view, _html} = live(conn, ~p"/admin/participations/#{participation.id}")
     assert has_element?(view, "h1", "Participation #{participation.id}")
-    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "worry.v1")
-    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-2", "restlessness.v1")
-    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-3", "cognitive-disruption.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-1", "low-mood.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-2", "hopelessness.v1")
+    assert has_element?(view, "#task-#{hd(run.tasks).id}-question-3", "worry.v1")
     refute has_element?(view, "#participation-responses form")
     assert Repo.aggregate(Response, :count) == 1
     assert Repo.aggregate(Participation, :count) == 1

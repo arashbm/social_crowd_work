@@ -6,7 +6,7 @@ defmodule SocialCrowdWork.Instructions do
   definitions through `:social_crowd_work, :instruction_set_modules`.
   """
 
-  @instruction_set_modules []
+  @instruction_set_modules [SocialCrowdWork.Instructions.PsychosocialComparisonV1]
 
   def fetch(key) when is_binary(key) do
     case Enum.find(instruction_set_modules(), fn module -> module.key() == key end) do

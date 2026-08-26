@@ -1,15 +1,13 @@
-defmodule SocialCrowdWork.Questionnaires.PsychosocialComparisonsV1 do
-  @behaviour SocialCrowdWork.Questionnaires.Questionnaire
+defmodule SocialCrowdWork.Instructions.PsychosocialComparisonV1 do
+  @behaviour SocialCrowdWork.Instructions.InstructionSet
 
   @impl true
-  def key, do: "psychosocial-comparisons.v1"
+  def key, do: "psychosocial-comparison-instructions.v1"
 
   @impl true
-  def task_type, do: :comparison
-
-  @impl true
-  def questions do
+  def pages do
     [
+      SocialCrowdWork.Instructions.GeneralAnnotationPageV1,
       SocialCrowdWork.Prompts.LowMoodV1,
       SocialCrowdWork.Prompts.HopelessnessV1,
       SocialCrowdWork.Prompts.WorryV1,

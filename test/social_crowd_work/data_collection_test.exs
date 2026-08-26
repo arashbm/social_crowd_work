@@ -649,19 +649,18 @@ defmodule SocialCrowdWork.DataCollectionTest do
       assert page.questionnaire.key() == "psychosocial-comparisons.v1"
       assert page.total_tasks == 1
       refute page.complete?
-      assert page.active_question_key == "worry.v1"
+      assert page.active_question_key == "low-mood.v1"
 
-      assert Enum.map(page.questions, &{&1.number, &1.key, &1.module, &1.response}) == [
-               {1, "worry.v1", SocialCrowdWork.Prompts.WorryV1, nil},
-               {2, "restlessness.v1", SocialCrowdWork.Prompts.RestlessnessV1, nil},
-               {3, "cognitive-disruption.v1", SocialCrowdWork.Prompts.CognitiveDisruptionV1, nil}
-             ]
+      assert Enum.map(page.questions, &{&1.number, &1.key, &1.module, &1.response}) ==
+               SocialCrowdWork.Questionnaires.PsychosocialComparisonsV1.questions()
+               |> Enum.with_index(1)
+               |> Enum.map(fn {module, number} -> {number, module.key(), module, nil} end)
 
       assert {:ok, response} =
-               DataCollection.record_response(participation, task.id, "worry.v1", :post_a)
+               DataCollection.record_response(participation, task.id, "low-mood.v1", :post_a)
 
       assert {:ok, updated_page} = DataCollection.task_page(participation, 1)
-      assert updated_page.active_question_key == "restlessness.v1"
+      assert updated_page.active_question_key == "hopelessness.v1"
       refute updated_page.complete?
       assert Enum.at(updated_page.questions, 0).response.id == response.id
     end
@@ -854,7 +853,11 @@ defmodule SocialCrowdWork.DataCollectionTest do
 
       assert {:error, :tasks_remaining} = DataCollection.complete_participation(participation)
 
-      for question_key <- ["worry.v1", "restlessness.v1"] do
+      question_keys =
+        SocialCrowdWork.Questionnaires.PsychosocialComparisonsV1.questions()
+        |> Enum.map(& &1.key())
+
+      for question_key <- Enum.drop(question_keys, -1) do
         assert {:ok, _response} =
                  DataCollection.record_response(participation, task.id, question_key, :skip)
       end
@@ -866,7 +869,7 @@ defmodule SocialCrowdWork.DataCollectionTest do
                DataCollection.record_response(
                  participation,
                  task.id,
-                 "cognitive-disruption.v1",
+                 List.last(question_keys),
                  :skip
                )
 

@@ -1,0 +1,3 @@
+defmodule SocialCrowdWork.Prompts.InabilityToControlWorryV1 do
+  use SocialCrowdWork.Prompts.ComparisonPromptDefinition, :inability_to_control_worry
+end

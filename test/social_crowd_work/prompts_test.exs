@@ -5,9 +5,22 @@ defmodule SocialCrowdWork.PromptsTest do
   alias SocialCrowdWork.Questionnaires
 
   @production_prompts [
+    {"low-mood.v1", SocialCrowdWork.Prompts.LowMoodV1},
+    {"hopelessness.v1", SocialCrowdWork.Prompts.HopelessnessV1},
     {"worry.v1", SocialCrowdWork.Prompts.WorryV1},
     {"restlessness.v1", SocialCrowdWork.Prompts.RestlessnessV1},
-    {"cognitive-disruption.v1", SocialCrowdWork.Prompts.CognitiveDisruptionV1}
+    {"irritability.v1", SocialCrowdWork.Prompts.IrritabilityV1},
+    {"cognitive-disruption.v1", SocialCrowdWork.Prompts.CognitiveDisruptionV1},
+    {"cognitive-distortions.v1", SocialCrowdWork.Prompts.CognitiveDistortionsV1},
+    {"inability-to-control-worry.v1", SocialCrowdWork.Prompts.InabilityToControlWorryV1},
+    {"stress-overload.v1", SocialCrowdWork.Prompts.StressOverloadV1},
+    {"social-disconnection.v1", SocialCrowdWork.Prompts.SocialDisconnectionV1},
+    {"guilt-worthlessness.v1", SocialCrowdWork.Prompts.GuiltWorthlessnessV1},
+    {"fatigue.v1", SocialCrowdWork.Prompts.FatigueV1},
+    {"sleep-disturbance.v1", SocialCrowdWork.Prompts.SleepDisturbanceV1},
+    {"suicidal-ideation.v1", SocialCrowdWork.Prompts.SuicidalIdeationV1},
+    {"loss-of-interest.v1", SocialCrowdWork.Prompts.LossOfInterestV1},
+    {"appetite-changes.v1", SocialCrowdWork.Prompts.AppetiteChangesV1}
   ]
 
   test "fetches production comparison prompts by their immutable keys" do
@@ -17,6 +30,7 @@ defmodule SocialCrowdWork.PromptsTest do
       assert module.choices() == [:post_a, :post_b, :equal, :skip]
       assert is_binary(module.description())
       assert %Phoenix.LiveView.Rendered{} = module.render(%{})
+      assert %Phoenix.LiveView.Rendered{} = module.render(%{instruction_page: true})
       assert %Phoenix.LiveView.Rendered{} = module.detailed_instructions(%{})
     end)
   end
@@ -49,11 +63,8 @@ defmodule SocialCrowdWork.PromptsTest do
 
     assert questionnaire.task_type() == :comparison
 
-    assert Enum.map(questionnaire.questions(), & &1.key()) == [
-             "worry.v1",
-             "restlessness.v1",
-             "cognitive-disruption.v1"
-           ]
+    assert Enum.map(questionnaire.questions(), & &1.key()) ==
+             Enum.map(@production_prompts, &elem(&1, 0))
   end
 
   test "fetches configured questionnaire modules" do

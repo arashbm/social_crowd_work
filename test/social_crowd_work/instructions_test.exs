@@ -4,7 +4,21 @@ defmodule SocialCrowdWork.InstructionsTest do
   alias SocialCrowdWork.Instructions
 
   test "fetches configured instruction sets and preserves page order" do
-    assert Instructions.instruction_set_keys() == ["test-instructions.v1"]
+    assert Instructions.instruction_set_keys() == [
+             "psychosocial-comparison-instructions.v1",
+             "test-instructions.v1"
+           ]
+
+    assert {:ok, SocialCrowdWork.Instructions.PsychosocialComparisonV1} =
+             Instructions.fetch("psychosocial-comparison-instructions.v1")
+
+    assert SocialCrowdWork.Instructions.PsychosocialComparisonV1.pages() ==
+             [SocialCrowdWork.Instructions.GeneralAnnotationPageV1] ++
+               SocialCrowdWork.Questionnaires.PsychosocialComparisonsV1.questions()
+
+    assert %Phoenix.LiveView.Rendered{} =
+             SocialCrowdWork.Instructions.GeneralAnnotationPageV1.render(%{})
+
     assert {:ok, SocialCrowdWork.TestInstructionSet} = Instructions.fetch("test-instructions.v1")
 
     assert SocialCrowdWork.TestInstructionSet.pages() == [

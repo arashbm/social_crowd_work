@@ -1,6 +1,6 @@
 # Development Data
 
-Development uses the production `psychosocial-comparisons.v1` questionnaire for comparison tasks and the development-only `dev-instructions.v1` instruction set for both conditions. Its placeholder binary prompt, single-question questionnaire, instruction set, and consent modules live in `dev/support/`; they are registered only in `config/dev.exs` and are not compiled into production or test releases.
+Development uses the production `psychosocial-comparisons.v1` questionnaire and `psychosocial-comparison-instructions.v1` instruction set for comparison tasks. Its placeholder binary prompt, single-question questionnaire, instruction set, and consent modules live in `dev/support/`; they are registered only in `config/dev.exs` and are not compiled into production or test releases.
 
 The seed script imports `priv/repo/dev_manifest.json` through the same `SocialCrowdWork.Imports` service used by the CLI and future admin UI. It creates:
 

@@ -44,7 +44,7 @@ Experiment designs are imported as versioned JSON documents. Format version `3` 
 
 Condition keys are global. Reusing a condition key requires an exact match of its task type, variants, and instruction-set assignment. Run keys are unique within a condition, including across separate import files. Task positions must be contiguous from `1` within each run.
 
-Questionnaire keys must exist in `SocialCrowdWork.Questionnaires` and be compatible with the condition's task type. A task stores its stimuli once; the questionnaire defines the ordered questions shown for those stimuli. For example, `psychosocial-comparisons.v1` asks the production worry, restlessness, and cognitive-disruption questions on one comparison task instead of representing that shared stimulus pair as three adjacent tasks.
+Questionnaire keys must exist in `SocialCrowdWork.Questionnaires` and be compatible with the condition's task type. A task stores its stimuli once; the questionnaire defines the ordered questions shown for those stimuli. For example, `psychosocial-comparisons.v1` asks 16 production questions spanning mood, worry, cognition, stress, social connection, energy, sleep, appetite, and related factors on one comparison task instead of representing that shared stimulus pair as adjacent tasks.
 
 The reusable API accepts file contents so both CLI and future web uploads use the same code:
 

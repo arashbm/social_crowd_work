@@ -8,9 +8,22 @@ defmodule SocialCrowdWork.Prompts do
   """
 
   @prompt_modules [
+    SocialCrowdWork.Prompts.LowMoodV1,
+    SocialCrowdWork.Prompts.HopelessnessV1,
     SocialCrowdWork.Prompts.WorryV1,
     SocialCrowdWork.Prompts.RestlessnessV1,
-    SocialCrowdWork.Prompts.CognitiveDisruptionV1
+    SocialCrowdWork.Prompts.IrritabilityV1,
+    SocialCrowdWork.Prompts.CognitiveDisruptionV1,
+    SocialCrowdWork.Prompts.CognitiveDistortionsV1,
+    SocialCrowdWork.Prompts.InabilityToControlWorryV1,
+    SocialCrowdWork.Prompts.StressOverloadV1,
+    SocialCrowdWork.Prompts.SocialDisconnectionV1,
+    SocialCrowdWork.Prompts.GuiltWorthlessnessV1,
+    SocialCrowdWork.Prompts.FatigueV1,
+    SocialCrowdWork.Prompts.SleepDisturbanceV1,
+    SocialCrowdWork.Prompts.SuicidalIdeationV1,
+    SocialCrowdWork.Prompts.LossOfInterestV1,
+    SocialCrowdWork.Prompts.AppetiteChangesV1
   ]
 
   def fetch(key) when is_binary(key) do

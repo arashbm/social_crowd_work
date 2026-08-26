@@ -135,7 +135,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
 
     assert has_element?(
              view,
-             "#participant-telemetry[data-participation-id][data-task-id][data-question-key='worry.v1']"
+             "#participant-telemetry[data-participation-id][data-task-id][data-question-key='low-mood.v1']"
            )
 
     assert has_element?(view, "#task-panel[data-task-id]")
@@ -145,16 +145,16 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(view, "#post-b[data-copy-target='post_b']")
     assert render(element(view, "#comparison-posts > #post-a"))
     assert render(element(view, "#comparison-posts > #post-b"))
-    assert has_element?(view, "#question-1[data-question-key='worry.v1'][data-state='active']")
+    assert has_element?(view, "#question-1[data-question-key='low-mood.v1'][data-state='active']")
 
     assert has_element?(
              view,
-             "#question-2[data-question-key='restlessness.v1'][data-state='locked']"
+             "#question-2[data-question-key='hopelessness.v1'][data-state='locked']"
            )
 
     assert has_element?(
              view,
-             "#question-3[data-question-key='cognitive-disruption.v1'][data-state='locked']"
+             "#question-3[data-question-key='worry.v1'][data-state='locked']"
            )
 
     assert has_element?(view, "#question-1-header[aria-expanded='true'][disabled]")
@@ -165,23 +165,23 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
              "#question-1-region[role='region'][aria-labelledby='question-1-header']"
            )
 
-    assert has_element?(view, "#question-1-header #worry-prompt-v1")
-    refute has_element?(view, "#question-1-region #worry-prompt-v1")
+    assert has_element?(view, "#question-1-header #low-mood-prompt-v1")
+    refute has_element?(view, "#question-1-region #low-mood-prompt-v1")
 
     assert has_element?(
              view,
              "#question-1-region",
-             "Compare how strongly each post expresses worry"
+             "Feeling persistently sad, down, empty, or emotionally low."
            )
 
     assert has_element?(view, "#question-1-detailed-instructions", "Detailed instructions")
 
     assert has_element?(
              view,
-             "#question-1-region[data-copy-target='question'][data-question-key='worry.v1']"
+             "#question-1-region[data-copy-target='question'][data-question-key='low-mood.v1']"
            )
 
-    refute has_element?(view, "#question-2-region #restlessness-prompt-v1")
+    refute has_element?(view, "#question-2-region #hopelessness-prompt-v1")
 
     assert has_element?(view, "#question-1-region #answer-post-a[data-shortcut='a']")
     assert has_element?(view, "#question-1-region #answer-equal[data-shortcut='s']")
@@ -217,7 +217,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert has_element?(
              view,
              "#detailed-instructions-question #detailed-instructions-question-text",
-             "Which post shows more worry about something bad happening?"
+             "Which post shows more evidence of feeling emotionally low?"
            )
 
     assert has_element?(view, "#close-detailed-instructions")
@@ -250,7 +250,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
       "event_id" => event_id,
       "kind" => "question_rendered",
       "task_id" => task.id,
-      "question_key" => "worry.v1",
+      "question_key" => "low-mood.v1",
       "client_session_id" => Ecto.UUID.generate(),
       "sequence" => 1,
       "client_elapsed_ms" => 12,
@@ -273,11 +273,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     {:ok, view, _html} = live(recycle(conn), participant_path)
 
     view |> element("#accept-consent") |> render_click()
-    render_click(view, "open_question", %{"position" => "1", "question_key" => "restlessness.v1"})
-    assert has_element?(view, "#question-2[data-state='locked']")
+    render_click(view, "open_question", %{"position" => "1", "question_key" => "hopelessness.v1"})
+    assert has_element?(view, "#question-2[data-state='locked'].opacity-25")
 
     view |> element("#answer-post-a") |> render_click()
-    assert has_element?(view, "#question-1[data-state='answered']")
+    assert_push_event(view, "scroll_to_question", %{id: "question-2"})
+    assert has_element?(view, "#question-1[data-state='answered'].opacity-50")
 
     assert has_element?(
              view,
@@ -285,13 +286,13 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
              "Post A"
            )
 
-    assert has_element?(view, "#question-2[data-state='active']")
-    assert has_element?(view, "#question-2-header #restlessness-prompt-v1")
+    assert has_element?(view, "#question-2[data-state='active']:not(.opacity-50)")
+    assert has_element?(view, "#question-2-header #hopelessness-prompt-v1")
 
     assert has_element?(
              view,
              "#question-2-region",
-             "Compare how strongly each post conveys emotional tension"
+             "Feeling that things will not get better"
            )
 
     assert has_element?(view, "#question-3-header[disabled]")
@@ -309,7 +310,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
       Repo.get_by!(Response,
         participation_id: participation.id,
         task_id: first_task.id,
-        question_key: "worry.v1"
+        question_key: "low-mood.v1"
       )
 
     assert response.choice == :post_b
@@ -393,6 +394,34 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     assert participation.instructions_completed_at
   end
 
+  test "renders and completes the production general annotation instructions", %{conn: conn} do
+    condition =
+      condition_fixture(:comparison, %{
+        instructions_key: "psychosocial-comparison-instructions.v1"
+      })
+
+    run_fixture(condition, %{tasks: [psychosocial_task()]})
+    {:ok, view, _html} = enter_study(conn, condition, participation_attrs(condition))
+
+    view |> element("#accept-consent") |> render_click()
+
+    assert has_element?(
+             view,
+             "#general-annotation-instructions-v1",
+             "General Annotation Instructions"
+           )
+
+    assert has_element?(view, "#general-annotation-instructions-v1", "Example: comparing worry")
+    assert has_element?(view, "#general-annotation-instructions-v1", "Post A shows more worry")
+    assert has_element?(view, "#instruction-progress", "Page 1 / 17")
+
+    for _page <- 1..17 do
+      view |> element("#next-instruction") |> render_click()
+    end
+
+    assert has_element?(view, "#task-panel")
+  end
+
   test "finishing a questionnaire advances to the next pair and previous reopens question one", %{
     conn: conn
   } do
@@ -402,7 +431,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     {:ok, view, _html} = enter_study(conn, condition, attrs)
 
     view |> element("#accept-consent") |> render_click()
-    answer_three_questions(view)
+    answer_all_questions(view)
 
     assert_push_event(view, "scroll_to_top", %{})
     assert has_element?(view, "#task-progress", "2 / 2")
@@ -425,8 +454,8 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     {:ok, view, _html} = enter_study(conn, condition, attrs)
 
     view |> element("#accept-consent") |> render_click()
-    answer_three_questions(view)
-    answer_three_questions(view)
+    answer_all_questions(view)
+    answer_all_questions(view)
     assert has_element?(view, "#task-progress", "3 / 3")
 
     answer_event_count = Repo.aggregate(ParticipantEvent, :count)
@@ -446,12 +475,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     view |> element("#answer-post-a") |> render_click()
     assert has_element?(view, "#question-3[data-state='active']")
 
-    view |> element("#answer-post-a") |> render_click()
+    answer_questions(view, 14)
     assert has_element?(view, "#task-progress", "2 / 3")
     assert has_element?(view, "#task-panel[data-navigation-mode='review']")
     assert has_element?(view, "#question-1[data-state='active']")
 
-    answer_three_questions(view)
+    answer_all_questions(view)
     assert has_element?(view, "#task-progress", "3 / 3")
     assert has_element?(view, "#task-panel[data-navigation-mode='forward']")
     assert has_element?(view, "#question-1[data-state='active']")
@@ -476,7 +505,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
       Repo.get_by!(Response,
         participation_id: participation.id,
         task_id: task.id,
-        question_key: "worry.v1"
+        question_key: "low-mood.v1"
       )
 
     assert response.choice == :equal
@@ -489,7 +518,7 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     {:ok, view, _html} = enter_study(conn, condition, attrs)
 
     view |> element("#accept-consent") |> render_click()
-    answer_three_questions(view)
+    answer_all_questions(view)
 
     assert {completion_path, %{}} = assert_redirect(view)
     assert completion_path =~ ~r|^/participate/[A-Za-z0-9_-]{43}/complete$|
@@ -605,10 +634,12 @@ defmodule SocialCrowdWorkWeb.ParticipantLiveTest do
     }
   end
 
-  defp answer_three_questions(view) do
-    view |> element("#answer-post-a") |> render_click()
-    view |> element("#answer-post-a") |> render_click()
-    view |> element("#answer-post-a") |> render_click()
+  defp answer_all_questions(view), do: answer_questions(view, 16)
+
+  defp answer_questions(view, count) do
+    Enum.each(1..count, fn _question ->
+      view |> element("#answer-post-a") |> render_click()
+    end)
   end
 
   defp enter_study(conn, condition, attrs) do
