@@ -57,6 +57,19 @@ defmodule SocialCrowdWork.DataCollection do
     end)
   end
 
+  def create_participant_resume_launch(
+        %Participation{
+          status: status,
+          run: %Run{condition: %Condition{} = condition}
+        } = participation
+      )
+      when status in [:assigned, :in_progress] do
+    create_participant_launch(condition, launch_identity(participation))
+  end
+
+  def create_participant_resume_launch(%Participation{}),
+    do: {:error, :participation_not_resumable}
+
   def resolve_participant_launch(raw_token) do
     current_time = now()
 

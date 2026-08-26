@@ -203,6 +203,71 @@ defmodule SocialCrowdWorkWeb.AdminPanelTest do
     assert has_element?(show, "#raw-prolific-participant-id", attrs.prolific_participant_id)
   end
 
+  test "copies resume links only for resumable participations and audits generation", %{
+    conn: conn
+  } do
+    resumable_condition = condition_fixture()
+    run_fixture(resumable_condition)
+
+    assert {:ok, resumable} =
+             DataCollection.consent_and_assign_run(
+               resumable_condition,
+               participation_attrs(resumable_condition),
+               "test-consent.v1"
+             )
+
+    in_progress_condition = condition_fixture()
+    run_fixture(in_progress_condition)
+
+    assert {:ok, in_progress} =
+             DataCollection.consent_and_assign_run(
+               in_progress_condition,
+               participation_attrs(in_progress_condition),
+               "test-consent.v1"
+             )
+
+    in_progress =
+      in_progress
+      |> Ecto.Changeset.change(status: :in_progress)
+      |> Repo.update!()
+
+    completed_condition = condition_fixture()
+    run_fixture(completed_condition)
+
+    assert {:ok, completed} =
+             DataCollection.consent_and_assign_run(
+               completed_condition,
+               participation_attrs(completed_condition),
+               "test-consent.v1"
+             )
+
+    completed =
+      completed
+      |> Ecto.Changeset.change(
+        status: :completed,
+        completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+      |> Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/admin/participations")
+
+    assert has_element?(
+             view,
+             "#copy-resume-link-#{resumable.id}[data-participation-id='#{resumable.id}']"
+           )
+
+    assert has_element?(view, "#copy-resume-link-#{in_progress.id}")
+    refute has_element?(view, "#copy-resume-link-#{completed.id}")
+
+    render_hook(view, "copy_resume_link", %{"participation_id" => Integer.to_string(resumable.id)})
+
+    assert Repo.aggregate(DataCollection.ParticipantLaunch, :count) == 1
+
+    audit_event = Repo.get_by!(AuditEvent, action: "participant_resume_link_generated")
+    assert audit_event.target_type == "participation"
+    assert audit_event.target_id == resumable.id
+  end
+
   test "definitions and authenticated JSONL exports are available", %{conn: conn} do
     condition = condition_fixture()
     run = run_fixture(condition)

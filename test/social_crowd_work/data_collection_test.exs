@@ -467,6 +467,50 @@ defmodule SocialCrowdWork.DataCollectionTest do
                })
     end
 
+    test "creates an additional resume launch without invalidating an existing launch" do
+      condition = condition_fixture()
+      run_fixture(condition)
+      attrs = participation_attrs(condition)
+      original_token = create_launch(condition, attrs)
+
+      assert {:ok, participation} =
+               DataCollection.consent_and_assign_run(original_token, condition.consent_key)
+
+      assert {:ok, resume_token} =
+               DataCollection.create_participant_resume_launch(participation)
+
+      assert resume_token != original_token
+
+      assert {:ok, %{participation: original_participation}} =
+               DataCollection.resolve_participant_launch(original_token)
+
+      assert {:ok, %{participation: resumed_participation}} =
+               DataCollection.resolve_participant_launch(resume_token)
+
+      assert original_participation.id == participation.id
+      assert resumed_participation.id == participation.id
+      assert Repo.aggregate(ParticipantLaunch, :count) == 2
+    end
+
+    test "does not create a resume launch for a completed participation" do
+      condition = condition_fixture()
+      run_fixture(condition)
+
+      assert {:ok, participation} =
+               DataCollection.consent_and_assign_run(
+                 condition,
+                 participation_attrs(condition),
+                 condition.consent_key
+               )
+
+      participation = %{participation | status: :completed}
+
+      assert {:error, :participation_not_resumable} =
+               DataCollection.create_participant_resume_launch(participation)
+
+      assert Repo.aggregate(ParticipantLaunch, :count) == 0
+    end
+
     test "consent atomically creates and attaches participation and extends expiry" do
       condition = condition_fixture()
       run_fixture(condition)

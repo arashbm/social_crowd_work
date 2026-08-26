@@ -149,6 +149,12 @@ defmodule SocialCrowdWork.AdminPanel do
     |> Repo.preload(run: :condition)
   end
 
+  def get_participation(%Scope{}, id) do
+    Participation
+    |> preload(run: :condition)
+    |> Repo.get(id)
+  end
+
   def count_participation_tasks(%Scope{}, %Participation{run_id: run_id}) do
     Repo.aggregate(from(task in Task, where: task.run_id == ^run_id), :count)
   end
